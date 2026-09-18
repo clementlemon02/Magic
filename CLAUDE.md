@@ -76,6 +76,7 @@ class GraphState(TypedDict):
     verification: VerificationResult | None     # grounded: bool, unsupported: list[str], confidence: float
     clarification_question: str | None
     final_answer: str | None
+    citations: list[Citation]                   # resolvable source pointers backing final_answer (see §5)
     explanation: str | None                     # detailed reason when withheld/escalated — NEVER sent to the asker, only via compliance inquiry
     escalated: bool
     audit_events: list[AuditEvent]

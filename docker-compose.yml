@@ -1,0 +1,23 @@
+# Postgres + pgvector for local development. Reads the same .env the app does
+# (copy .env.example to .env first). schema.sql runs once, on first boot of an
+# empty volume — to re-apply it after editing, `docker compose down -v`.
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-internal_brain}
+      POSTGRES_USER: ${POSTGRES_USER:-internal_brain}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - ./src/db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-internal_brain} -d ${POSTGRES_DB:-internal_brain}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  pgdata:
