@@ -24,8 +24,13 @@ EMBEDDING_MAX_INPUT_TOKENS = 1024
 
 
 @lru_cache(maxsize=1)
-def get_chat_model() -> ChatHunyuan:
+def get_chat_model():
     s = get_settings()
+    if s.llm_backend == "fake":
+        from src.llm.fake import FakeChatModel, warn_fake_backend
+
+        warn_fake_backend()
+        return FakeChatModel()
     return ChatHunyuan(
         hunyuan_app_id=s.hunyuan_app_id,
         hunyuan_secret_id=s.hunyuan_secret_id,

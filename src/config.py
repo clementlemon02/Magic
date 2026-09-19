@@ -19,6 +19,10 @@ class Settings(BaseSettings):
     hunyuan_secret_id: str = ""
     hunyuan_secret_key: str = ""
     hunyuan_chat_model: str = "hunyuan-turbo"
+
+    # "hunyuan" (default) or "fake". The fake backend answers from canned strings
+    # and exists so the graph can run before credentials arrive — opt in explicitly.
+    llm_backend: str = "hunyuan"
     hunyuan_region: str = ""  # Hunyuan is region-agnostic; kept for SDK signature
 
     retrieval_top_k: int = 6
