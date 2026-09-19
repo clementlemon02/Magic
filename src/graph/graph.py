@@ -46,10 +46,11 @@ def _from_router(state: GraphState) -> str:
 
 
 def _from_retrieval(state: GraphState) -> str:
-    # A restricted item outscored everything permitted — refuse, do not answer.
+    # A restricted item outscored everything permitted — refuse before anything is
+    # drafted, so no restricted content ever reaches the Synthesizer's prompt.
     if state.get("permission_conflicts"):
         return "escalation"
-    return "verifier"
+    return "synthesizer"
 
 
 def _from_verifier(state: GraphState) -> str:
@@ -75,6 +76,7 @@ def build_graph(
     retrieval: Node,
     sql_tool: Node,
     clarification: Node,
+    synthesizer: Node,
     verifier: Node,
     escalation: Node,
     audit: Node,
@@ -86,6 +88,7 @@ def build_graph(
     g.add_node("retrieval", retrieval)
     g.add_node("sql_tool", sql_tool)
     g.add_node("clarification", clarification)
+    g.add_node("synthesizer", synthesizer)
     g.add_node("verifier", verifier)
     g.add_node("escalation", escalation)
     g.add_node("answer", answer)
@@ -104,9 +107,12 @@ def build_graph(
     )
     g.add_edge("clarification", "router")
     g.add_conditional_edges(
-        "retrieval", _from_retrieval, {"escalation": "escalation", "verifier": "verifier"}
+        "retrieval", _from_retrieval, {"escalation": "escalation", "synthesizer": "synthesizer"}
     )
-    g.add_edge("sql_tool", "verifier")
+    # §4: a SQL result reaches the Verifier "exactly like a retrieved chunk", so both
+    # evidence paths are drafted by the same node before judgement.
+    g.add_edge("sql_tool", "synthesizer")
+    g.add_edge("synthesizer", "verifier")
     g.add_conditional_edges(
         "verifier",
         _from_verifier,

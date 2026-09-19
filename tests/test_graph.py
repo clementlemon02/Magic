@@ -79,6 +79,7 @@ def _graph(**nodes):
         "retrieval": lambda s: {"hop_count": s.get("hop_count", 0) + 1},
         "sql_tool": lambda s: {"sql_result": 42},
         "clarification": lambda s: {"clarification_question": "Which ticket?"},
+        "synthesizer": lambda s: {"draft_answer": "45 days.", "citations": [_citation()]},
         "verifier": lambda s: {
             "verification": VerificationResult(grounded=True, unsupported=[], confidence=0.9)
         },
@@ -90,13 +91,7 @@ def _graph(**nodes):
 
 
 def test_rag_path_reaches_an_answer():
-    out = _graph(
-        verifier=lambda s: {
-            "verification": VerificationResult(grounded=True, unsupported=[], confidence=0.9),
-            "draft_answer": "45 days.",
-            "citations": [_citation()],
-        }
-    ).invoke(_start())
+    out = _graph().invoke(_start())
     assert out["final_answer"] == "45 days."
     assert out["citations"][0].source_platform == "confluence"
     assert out["escalated"] is False
@@ -144,8 +139,7 @@ def test_low_confidence_escalates_even_when_grounded():
     """§4: confidence below the threshold goes to Escalation regardless of grounding."""
     out = _graph(
         verifier=lambda s: {
-            "verification": VerificationResult(grounded=True, unsupported=[], confidence=0.4),
-            "draft_answer": "45 days.",
+            "verification": VerificationResult(grounded=True, unsupported=[], confidence=0.4)
         }
     ).invoke(_start())
     assert out["escalated"] is True
@@ -157,10 +151,7 @@ def test_sql_route_skips_retrieval_and_still_verifies():
     out = _graph(
         router=lambda s: {"route": "sql"},
         retrieval=lambda s: seen.append("retrieval") or {},
-        verifier=lambda s: {
-            "verification": VerificationResult(grounded=True, unsupported=[], confidence=0.9),
-            "draft_answer": "128 transactions.",
-        },
+        synthesizer=lambda s: {"draft_answer": "128 transactions.", "citations": []},
     ).invoke(_start())
     assert seen == []
     assert out["sql_result"] == 42
@@ -171,10 +162,6 @@ def test_clarification_returns_to_the_router_once():
     routes = iter(["clarify", "rag"])
     out = _graph(
         router=lambda s: {"route": next(routes)},
-        verifier=lambda s: {
-            "verification": VerificationResult(grounded=True, unsupported=[], confidence=0.9),
-            "draft_answer": "45 days.",
-        },
     ).invoke(_start())
     assert out["clarification_question"] == "Which ticket?"
     assert out["final_answer"] == "45 days."

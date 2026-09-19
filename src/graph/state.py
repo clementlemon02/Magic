@@ -38,6 +38,15 @@ class UserContext(BaseModel):
     dept: str
     clearance_level: int  # mirrors roles.clearance_level: 0 standard, 1 restricted
 
+    def acl_tags(self) -> list[str]:
+        """The tags this caller matches, for the §1 database-level filter.
+
+        Defined once because retrieval and the SQL tool both build predicates from
+        it — two copies of this would be two chances to disagree about who can see
+        what. Callers pass the result as a query parameter; never interpolate it.
+        """
+        return [self.role, self.dept]
+
 
 class Citation(BaseModel):
     """A pointer back to the source item a claim came from.

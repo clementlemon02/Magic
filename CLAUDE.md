@@ -110,6 +110,16 @@ incomplete review.
 - In: `query`, Router's ambiguity signal. Out: `clarification_question`.
 - One round only. Reply gets appended to `query`, control returns to Router.
 
+### Synthesizer — `src/agents/synthesizer.py`
+- In: `query`, `retrieved_chunks`, `sql_result`. Out: `draft_answer`, `citations`.
+- Drafts the answer the Verifier judges. Nothing else writes `draft_answer`, and the Verifier
+  takes it as an input — without this node the rag and sql paths both dead-end. Serves both,
+  since a SQL result reaches the Verifier exactly like a retrieved chunk.
+- Prompted to answer from the supplied evidence only, and to emit `INSUFFICIENT` rather than
+  reach outside it. `INSUFFICIENT` and "no permitted evidence" both yield `draft_answer=None`,
+  which the Verifier reports as ungrounded — so the hop loop and Escalation stay the only exits.
+- Runs strictly after the permission-conflict check: restricted content never enters its prompt.
+
 ### Verifier / Critic — `src/agents/verifier.py`
 - In: `draft_answer`, `retrieved_chunks`. Out: `verification`.
 - Claim-level LLM-as-judge, structured JSON out (`grounded`, `unsupported: list[str]`, `confidence: float`).
@@ -203,7 +213,7 @@ and flags the first row whose `row_hash` doesn't match. This check must exist an
 | Workstream | Owner | Key paths |
 | --- | --- | --- |
 | Retrieval + vector store + ingestion | Chris | `src/connectors/`, `src/ingestion/`, `src/agents/retrieval.py`, `src/db/schema.sql` (documents/chunks/permissions) |
-| Orchestration + verifier + SQL tool | Clement | `src/graph/`, `src/agents/router.py`, `src/agents/verifier.py`, `src/agents/sql_tool.py` |
+| Orchestration + verifier + SQL tool | Clement | `src/graph/`, `src/config.py`, `src/agents/router.py`, `src/agents/synthesizer.py`, `src/agents/verifier.py`, `src/agents/sql_tool.py` |
 | Audit + escalation + knowledge-gap + compliance/admin | Jin Hui | `src/agents/escalation.py`, `src/agents/audit.py`, `src/agents/knowledge_gap.py`, `src/api/compliance.py` |
 
 Shared files (`src/llm/factory.py`, `src/api/main.py`, `.env.example`, this file) — flag in the team
