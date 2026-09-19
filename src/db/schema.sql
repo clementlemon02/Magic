@@ -47,7 +47,10 @@ CREATE TABLE document_chunks (
     embedding    VECTOR(1024) NOT NULL,         -- dimension matches HUNYUAN_EMBEDDING_MODEL
     acl_tags     TEXT[] NOT NULL                -- inherited from documents.acl_tags at ingest time
 );
-CREATE INDEX ON document_chunks USING ivfflat (embedding vector_cosine_ops);
+-- hnsw rather than ivfflat: ivfflat builds its cluster lists from the rows present
+-- at CREATE INDEX time, and this file runs against an empty database at container
+-- init, which would leave the index untrained. hnsw builds incrementally.
+CREATE INDEX ON document_chunks USING hnsw (embedding vector_cosine_ops);
 
 -- Structured data source for the SQL Tool agent (fictional Aurelia Financial transactions)
 CREATE TABLE transactions (
