@@ -9,21 +9,36 @@ invariants that must never regress live in tests/ instead.
 
 import sys
 import time
+from functools import partial
 
 from evals.cases import (
     CANARY,
+    CLARIFICATION_CASES,
+    CORPUS,
     INJECTED_SYNTH,
     INJECTED_VERIFY,
+    LATENCY_QUERIES,
     REFUND,
+    ROUTER_ADVERSARIAL,
     ROUTER_CASES,
+    SQL_DATE_CASES,
+    SQL_TEMPLATE_CASES,
+    SQL_TODAY,
     SYNTHESIZER_CASES,
     VERIFIER_CASES,
 )
-from src.agents.router import classify
-from src.agents.synthesizer import synthesize
-from src.agents.verifier import verify
+from src.agents.clarification import FALLBACK_QUESTION, clarify, clarify_node
+from src.agents.router import classify, route_node
+from src.agents.sql_tool import run_query, sql_tool_node
+from src.agents.synthesizer import synthesize, synthesize_node
+from src.agents.verifier import verify, verify_node
+from src.api.main import initial_state
 from src.config import get_settings
+from src.graph.graph import build_graph
+from src.graph.state import UserContext
 from src.llm.factory import get_chat_model
+
+EVAL_USER = UserContext(id=1, role="support", dept="support", clearance_level=0)
 
 
 def _pct(n: int, d: int) -> str:
@@ -144,7 +159,16 @@ def main() -> int:
     print(f"backend: {settings.llm_backend} · model: {settings.ollama_model}\n")
 
     rows = []
-    for fn in (eval_router, eval_verifier, eval_synthesizer, eval_injection):
+    for fn in (
+        eval_router,
+        eval_router_adversarial,
+        eval_verifier,
+        eval_synthesizer,
+        eval_sql_templates,
+        eval_sql_dates,
+        eval_clarification,
+        eval_injection,
+    ):
         started = time.monotonic()
         result = fn(chat)
         result["seconds"] = time.monotonic() - started
@@ -156,13 +180,136 @@ def main() -> int:
         print(f"{r['label']:<38} {r['score']:<14} {r['seconds']:>6.1f}s")
         if "extra" in r:
             print(f"{r['extra'][0]:<38} {r['extra'][1]:<14}")
-    print()
 
+    timings = measure_latency(chat)
+    values = sorted(t for _, t in timings)
+    median = values[len(values) // 2]
+    print(f"\n{'end-to-end latency (orchestration only)':<38} {'':14}")
+    for query, seconds in timings:
+        marker = " " if seconds <= 6 else "!"
+        print(f"  {marker} {seconds:>5.1f}s  {query[:52]}")
+    print(f"    median {median:.1f}s · PRD target ~6s · retrieval not yet in the path")
+
+    print()
     for r in rows:
         if r["notes"]:
             print(f"  {r['label']}:")
             print("\n".join(r["notes"]))
     return 0
+
+
+
+
+def eval_router_adversarial(chat) -> dict:
+    """Questions that carry their own routing instructions, or bury the intent."""
+    hits, notes = 0, []
+    for query, expected, why in ROUTER_ADVERSARIAL:
+        got = classify(query, chat_model=chat)
+        if got == expected:
+            hits += 1
+        else:
+            notes.append(f"      want {expected:<8} got {got:<8} ({why})")
+    return {
+        "label": "Router — adversarial inputs",
+        "score": _pct(hits, len(ROUTER_ADVERSARIAL)),
+        "notes": notes,
+    }
+
+
+def _plan(query, chat, today=None):
+    """Plan a query without touching a database — the executor only records."""
+    seen = {}
+
+    def execute(sql, params):
+        seen["sql"], seen["params"] = sql, params
+        return []
+
+    out = run_query(query, EVAL_USER, execute, chat_model=chat, today=today or SQL_TODAY)
+    return out, seen
+
+
+def eval_sql_templates(chat) -> dict:
+    hits, notes = 0, []
+    for query, expected in SQL_TEMPLATE_CASES:
+        out, _ = _plan(query, chat)
+        got = (out or {}).get("template")
+        if got == expected:
+            hits += 1
+        else:
+            notes.append(f"      want {expected:<18} got {str(got):<18} {query[:44]}")
+    return {
+        "label": "SQL Tool — template selected",
+        "score": _pct(hits, len(SQL_TEMPLATE_CASES)),
+        "notes": notes,
+    }
+
+
+def eval_sql_dates(chat) -> dict:
+    """Wrong dates are the quiet failure: a confident number over the wrong period."""
+    hits, notes = 0, []
+    for query, want_start, want_end in SQL_DATE_CASES:
+        _, seen = _plan(query, chat)
+        got_start = seen.get("params", {}).get("start")
+        got_end = seen.get("params", {}).get("end")
+        if (got_start, got_end) == (want_start, want_end):
+            hits += 1
+        else:
+            notes.append(
+                f"      want {want_start}..{want_end} got {got_start}..{got_end}  {query[:40]}"
+            )
+    return {
+        "label": "SQL Tool — date range extracted",
+        "score": _pct(hits, len(SQL_DATE_CASES)),
+        "notes": notes,
+    }
+
+
+def eval_clarification(chat) -> dict:
+    """One round only, so the question has to be short and actually a question."""
+    good, notes = 0, []
+    for query in CLARIFICATION_CASES:
+        question = clarify(query, chat_model=chat)
+        problems = []
+        if "?" not in question:
+            problems.append("not a question")
+        if len(question) > 200:
+            problems.append(f"{len(question)} chars")
+        if question == FALLBACK_QUESTION:
+            problems.append("fell back to the generic question")
+        if problems:
+            notes.append(f"      {', '.join(problems)}: {question[:52]}")
+        else:
+            good += 1
+    return {
+        "label": "Clarification — usable question",
+        "score": _pct(good, len(CLARIFICATION_CASES)),
+        "notes": notes,
+    }
+
+
+def measure_latency(chat) -> list[tuple[str, float]]:
+    """End-to-end wall time per query, against the PRD's ~6s target.
+
+    Retrieval, escalation and audit are stubs, so this is the LLM cost of the
+    orchestration path only — the real figure will be higher once retrieval does
+    two pgvector searches per hop.
+    """
+    graph = build_graph(
+        router=partial(route_node, chat_model=chat),
+        clarification=partial(clarify_node, chat_model=chat),
+        synthesizer=partial(synthesize_node, chat_model=chat),
+        verifier=partial(verify_node, chat_model=chat),
+        sql_tool=partial(sql_tool_node, chat_model=chat),
+        retrieval=lambda s: {"hop_count": s.get("hop_count", 0) + 1, "retrieved_chunks": CORPUS},
+        escalation=lambda s: {"escalated": True},
+        audit=lambda s: {"audit_events": []},
+    )
+    timings = []
+    for query in LATENCY_QUERIES:
+        started = time.monotonic()
+        graph.invoke(initial_state(query, EVAL_USER))
+        timings.append((query, time.monotonic() - started))
+    return timings
 
 
 if __name__ == "__main__":

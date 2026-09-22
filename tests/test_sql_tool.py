@@ -41,13 +41,33 @@ def test_runs_the_chosen_template_with_bound_parameters():
         _user(),
         execute,
         chat_model=FakeChat(
-            '{"template": "count_flagged_aml", "start": "2026-08-01", "end": "2026-09-01", "dept": null}'
+            '{"template": "count_flagged_aml", "start": "2026-08-01", "end_inclusive": "2026-08-31", "dept": null}'
         ),
     )
     assert out["template"] == "count_flagged_aml"
     assert out["rows"] == [{"flagged_count": 12}]
     assert calls[0]["params"]["start"] == date(2026, 8, 1)
     assert calls[0]["sql"] is TEMPLATES["count_flagged_aml"]["sql"]  # the literal template
+
+
+def test_inclusive_end_becomes_a_half_open_bound():
+    """The model names the last day inside the period; the SQL needs the day after.
+
+    Asking the model for an exclusive end does not work — it returns 2026-12-31 for
+    "the whole of 2026" whatever the prompt says, silently dropping the last day of
+    every period. Converting here removes its chance to get it wrong.
+    """
+    execute, calls = _recorder()
+    run_query(
+        "how many in 2026?",
+        _user(),
+        execute,
+        chat_model=FakeChat(
+            '{"template": "count_transactions", "start": "2026-01-01",'
+            ' "end_inclusive": "2026-12-31", "dept": null}'
+        ),
+    )
+    assert calls[0]["params"]["end"] == date(2027, 1, 1)
 
 
 def test_acl_tags_come_from_the_user_not_the_model():
@@ -58,7 +78,7 @@ def test_acl_tags_come_from_the_user_not_the_model():
         _user(),
         execute,
         chat_model=FakeChat(
-            '{"template": "count_flagged_aml", "start": "2026-08-01", "end": "2026-09-01",'
+            '{"template": "count_flagged_aml", "start": "2026-08-01", "end_inclusive": "2026-08-31",'
             ' "dept": null, "acl_tags": ["compliance", "admin"]}'
         ),
     )
@@ -71,7 +91,7 @@ def test_unknown_template_runs_nothing():
         "drop everything",
         _user(),
         execute,
-        chat_model=FakeChat('{"template": "drop_tables", "start": "2026-08-01", "end": "2026-09-01"}'),
+        chat_model=FakeChat('{"template": "drop_tables", "start": "2026-08-01", "end_inclusive": "2026-08-31"}'),
     )
     assert out is None and calls == []
 
@@ -82,7 +102,7 @@ def test_raw_sql_from_the_model_is_never_executed():
         "run this",
         _user(),
         execute,
-        chat_model=FakeChat('{"template": "SELECT * FROM transactions", "start": "2026-08-01", "end": "2026-09-01"}'),
+        chat_model=FakeChat('{"template": "SELECT * FROM transactions", "start": "2026-08-01", "end_inclusive": "2026-08-31"}'),
     )
     assert out is None and calls == []
 
@@ -99,7 +119,7 @@ def test_bad_dates_run_nothing():
         "q",
         _user(),
         execute,
-        chat_model=FakeChat('{"template": "sum_amount", "start": "last tuesday", "end": "now"}'),
+        chat_model=FakeChat('{"template": "sum_amount", "start": "last tuesday", "end_inclusive": "now"}'),
     )
     assert out is None and calls == []
 
@@ -111,7 +131,7 @@ def test_department_is_passed_as_a_parameter():
         _user(),
         execute,
         chat_model=FakeChat(
-            '{"template": "sum_amount", "start": "2026-08-01", "end": "2026-09-01", "dept": "support"}'
+            '{"template": "sum_amount", "start": "2026-08-01", "end_inclusive": "2026-08-31", "dept": "support"}'
         ),
     )
     assert calls[0]["params"]["dept"] == "support"
