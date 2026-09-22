@@ -108,18 +108,24 @@ def test_acl_predicate_excludes_rows_the_caller_cannot_see(seeded_transactions):
 
 
 def test_a_compliance_caller_sees_the_restricted_row(seeded_transactions):
-    """The same query, same data, different caller — the predicate is the only difference."""
+    """The same data, a different caller — the predicate is the only difference.
+
+    Asserts on the total, not a count: each caller can see exactly one flagged
+    row, so a count of 1 cannot tell which row the predicate matched.
+    """
     marcus = UserContext(id=2, role="compliance", dept="compliance", clearance_level=1)
     out = run_query(
-        "how many were flagged for AML in August?",
+        "total value in August",
         marcus,
         _psycopg_execute,
         chat_model=FakeChat(
-            '{"template": "count_flagged_aml", "start": "2026-08-01", "end": "2026-09-01", "dept": null}'
+            '{"template": "sum_amount", "start": "2026-08-01", "end": "2026-09-01", "dept": null}'
         ),
     )
-    assert out["rows"][0]["flagged_count"] == 1
-    assert out["rows"][0]["flagged_count"] != 2  # still not both — tags, not clearance
+    total = sum(r["total_amount"] for r in out["rows"])
+    # The restricted row and nothing else: clearance 1 does not also grant the
+    # support rows Alex sees. Overlapping tags decide this, never clearance.
+    assert total == 999999
 
 
 def test_sum_amount_excludes_the_restricted_row(seeded_transactions):
