@@ -23,9 +23,27 @@ def test_fake_backend_is_opt_in_and_warns(monkeypatch):
     assert isinstance(model, FakeChatModel)
 
 
-def test_default_backend_is_hunyuan(monkeypatch):
-    monkeypatch.delenv("LLM_BACKEND", raising=False)
-    assert get_settings().llm_backend == "hunyuan"
+def test_default_backend_is_ollama():
+    """The only backend that can actually run — no Hunyuan credentials exist.
+
+    Constructed with _env_file=None so this asserts the code default rather than
+    whatever a developer happens to have in their local .env.
+    """
+    from src.config import Settings
+
+    assert Settings(_env_file=None).llm_backend == "ollama"
+
+
+def test_ollama_backend_is_selectable_without_warning(monkeypatch):
+    """Constructing the client does not connect, so this needs no running server."""
+    from langchain_community.chat_models import ChatOllama
+
+    monkeypatch.setenv("LLM_BACKEND", "ollama")
+    monkeypatch.setenv("OLLAMA_MODEL", "qwen2.5:7b")
+    model = get_chat_model()
+    assert isinstance(model, ChatOllama)
+    assert model.model == "qwen2.5:7b"
+    assert model.temperature == 0  # deterministic: routing and judging aren't creative
 
 
 def test_unrecognised_prompt_raises_rather_than_guessing():

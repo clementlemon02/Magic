@@ -35,7 +35,14 @@ def _render_evidence(chunks: list[Chunk], sql_result) -> str:
 
 
 def _citations(chunks: list[Chunk]) -> list[Citation]:
-    """One citation per source document, in the order the chunks scored."""
+    """One citation per source document, in the order the chunks scored.
+
+    ponytail: cites every retrieved document, not only the ones the answer drew on.
+    Observed against qwen2.5 — asking about chargebacks over a chargeback chunk and a
+    PII chunk cites both. Defensible (each passed RETRIEVAL_MIN_SCORE, so they are
+    "sources consulted"), but imprecise. To tighten, have the Synthesizer emit the
+    evidence indices it used and filter on them.
+    """
     seen: set[int] = set()
     out: list[Citation] = []
     for c in chunks:
