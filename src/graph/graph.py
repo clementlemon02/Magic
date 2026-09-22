@@ -25,6 +25,13 @@ def answer_node(state: GraphState) -> dict:
     """
     if state.get("escalated"):
         return {"final_answer": GENERIC_REFUSAL, "citations": []}
+
+    # An ambiguous question ends the turn with the question itself. Checked after
+    # the refusal, never before it: a clarification must not become a side channel
+    # that distinguishes "nothing found" from "not permitted" (§5).
+    if state.get("clarification_question") and not state.get("draft_answer"):
+        return {"final_answer": state["clarification_question"], "citations": []}
+
     return {
         "final_answer": state.get("draft_answer"),
         "citations": state.get("citations") or [],
@@ -105,7 +112,10 @@ def build_graph(
             "escalate": "escalation",
         },
     )
-    g.add_edge("clarification", "router")
+    # Ends the turn rather than looping to the Router: POST /query is one request and
+    # one response, so the asker answers by asking again with a fuller question. That
+    # also makes §4's "one round only" structural — the Router runs once per request.
+    g.add_edge("clarification", "answer")
     g.add_conditional_edges(
         "retrieval", _from_retrieval, {"escalation": "escalation", "synthesizer": "synthesizer"}
     )

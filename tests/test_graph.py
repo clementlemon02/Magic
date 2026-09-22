@@ -158,10 +158,29 @@ def test_sql_route_skips_retrieval_and_still_verifies():
     assert out["final_answer"] == "128 transactions."
 
 
-def test_clarification_returns_to_the_router_once():
-    routes = iter(["clarify", "rag"])
+def test_clarification_ends_the_turn_with_the_question():
+    """§4's one round: the asker gets the question, and answers by asking again."""
+    reached = []
     out = _graph(
-        router=lambda s: {"route": next(routes)},
+        router=lambda s: {"route": "clarify"},
+        retrieval=lambda s: reached.append("retrieval") or {},
+        synthesizer=lambda s: reached.append("synthesizer") or {},
     ).invoke(_start())
-    assert out["clarification_question"] == "Which ticket?"
-    assert out["final_answer"] == "45 days."
+
+    assert out["final_answer"] == "Which ticket?"
+    assert out["citations"] == []
+    assert out["escalated"] is False
+    # No evidence was gathered and no LLM drafted anything for an unanswerable question.
+    assert reached == []
+
+
+def test_a_refusal_outranks_a_pending_clarification():
+    """Escalation must win, so clarification cannot become a side channel (§5)."""
+    out = _graph(
+        router=lambda s: {"route": "clarify"},
+        clarification=lambda s: {
+            "clarification_question": "Which compliance space did you mean?",
+            "escalated": True,
+        },
+    ).invoke(_start())
+    assert out["final_answer"] == GENERIC_REFUSAL
