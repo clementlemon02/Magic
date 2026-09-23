@@ -20,9 +20,17 @@ class Settings(BaseSettings):
     hunyuan_secret_key: str = ""
     hunyuan_chat_model: str = "hunyuan-turbo"
 
-    # "hunyuan" (default) or "fake". The fake backend answers from canned strings
-    # and exists so the graph can run before credentials arrive — opt in explicitly.
-    llm_backend: str = "hunyuan"
+    # "hunyuan" (default), "ollama" or "fake". The hackathon provides no Hunyuan
+    # credentials, so ollama is the working local default until a hosted provider
+    # is chosen; fake answers from canned strings and is for tests only.
+    llm_backend: str = "ollama"
+
+    # qwen2.5 rather than qwen3: qwen3 emits <think> blocks by default, which is
+    # noise the Router's one-word answer and the Verifier's JSON both have to survive.
+    ollama_model: str = "qwen2.5:7b"
+    ollama_base_url: str = "http://localhost:11434"
+    # 1024-dim, matching document_chunks.embedding VECTOR(1024). Needs `ollama pull`.
+    ollama_embedding_model: str = "mxbai-embed-large"
     hunyuan_region: str = ""  # Hunyuan is region-agnostic; kept for SDK signature
 
     retrieval_top_k: int = 6
