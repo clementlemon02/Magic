@@ -31,44 +31,49 @@ def _chunk(doc_id: int, content: str) -> Chunk:
     )
 
 
-def test_cites_only_the_evidence_the_answer_used():
-    """The point of the SOURCES line: no citation to a document the answer ignored."""
-    chunks = [_chunk(1, "Chargebacks: 45 days."), _chunk(2, "PII access needs approval.")]
-    draft, citations = synthesize(
-        "How long to contest a chargeback?",
+def test_cites_only_the_document_the_answer_came_from():
+    """No model cooperation needed — selection is from the answer's own wording."""
+    chunks = [
+        _chunk(1, "Chargebacks must be contested within 45 days of the transaction date."),
+        _chunk(2, "Customer PII must be masked in all exported reports."),
+        _chunk(3, "Payment outage ENG-4471 root cause was an expired TLS certificate."),
+    ]
+    _, citations = synthesize(
+        "What caused the outage?",
         chunks,
-        chat_model=FakeChat("45 days.\nSOURCES: 1"),
+        chat_model=FakeChat("The payment outage root cause was an expired TLS certificate."),
     )
-    assert draft == "45 days."
-    assert [c.document_id for c in citations] == [1]
+    assert [c.document_id for c in citations] == [3]
 
 
-def test_sources_line_is_stripped_from_the_answer():
-    """It is bookkeeping — the asker must never see it."""
-    draft, _ = synthesize(
-        "q", [_chunk(1, "a")], chat_model=FakeChat("The window is 45 days.\nSOURCES: 1")
+def test_cites_both_documents_when_the_answer_spans_them():
+    """The Scenario 1 shape: one answer, two platforms, both cited."""
+    chunks = [
+        _chunk(1, "Chargebacks must be contested within 45 days."),
+        _chunk(2, "Customer PII must be masked in all exported reports."),
+        _chunk(3, "On-call PII access goes through the standing approval process."),
+    ]
+    _, citations = synthesize(
+        "How is PII handled and how does on-call get access?",
+        chunks,
+        chat_model=FakeChat(
+            "Customer PII must be masked in exported reports, and on-call PII access "
+            "goes through the standing approval process."
+        ),
     )
-    assert "SOURCES" not in draft
-    assert draft == "The window is 45 days."
+    assert [c.document_id for c in citations] == [2, 3]
 
 
-def test_out_of_range_source_numbers_are_dropped():
-    chunks = [_chunk(1, "a"), _chunk(2, "b")]
-    _, citations = synthesize("q", chunks, chat_model=FakeChat("answer\nSOURCES: 2, 9"))
-    assert [c.document_id for c in citations] == [2]
-
-
-def test_unusable_source_numbers_fall_back_to_citing_everything():
-    """An extra citation costs less than a missing one in Scenario 1."""
-    chunks = [_chunk(1, "a"), _chunk(2, "b")]
-    _, citations = synthesize("q", chunks, chat_model=FakeChat("answer\nSOURCES: 7, 8"))
+def test_paraphrased_answer_falls_back_to_citing_everything():
+    """Below the overlap floor the signal is noise — broad beats wrong."""
+    chunks = [_chunk(1, "Chargebacks must be contested within 45 days."), _chunk(2, "Unrelated.")]
+    _, citations = synthesize("q", chunks, chat_model=FakeChat("Six weeks, roughly."))
     assert [c.document_id for c in citations] == [1, 2]
 
 
-def test_insufficient_is_still_detected_with_a_sources_line():
-    draft, citations = synthesize(
-        "q", [_chunk(1, "a")], chat_model=FakeChat("INSUFFICIENT\nSOURCES: 1")
-    )
+def test_empty_reply_is_treated_as_no_answer():
+    """Returning "" would hand the asker a blank response."""
+    draft, citations = synthesize("q", [_chunk(1, "a")], chat_model=FakeChat("   "))
     assert draft is None and citations == []
 
 
