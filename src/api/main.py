@@ -9,12 +9,16 @@ walk straight past the §1 filter, since every ACL predicate downstream is built
 from UserContext.
 """
 
+import logging
 import uuid
 from collections.abc import Callable
 
-from fastapi import Depends, FastAPI, HTTPException
+import psycopg
+from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
+from src.config import get_settings
 from src.graph.graph import build_graph, build_response
 from src.graph.state import AskerResponse, GraphState, UserContext
 
@@ -30,22 +34,89 @@ class QueryRequest(BaseModel):
 
 def load_user(user_id: int) -> UserContext | None:
     """Resolve the caller from the database. Role and clearance are never client-supplied."""
-    import psycopg
     from psycopg.rows import dict_row
-
-    from src.config import get_settings
 
     sql = """
         SELECT u.id, r.name AS role, u.dept, r.clearance_level
         FROM users u JOIN roles r ON r.id = u.role_id
         WHERE u.id = %(user_id)s
     """
-    with psycopg.connect(get_settings().database_url, row_factory=dict_row) as conn:
+    settings = get_settings()
+    with psycopg.connect(
+        settings.database_url,
+        row_factory=dict_row,
+        connect_timeout=settings.db_connect_timeout_seconds,
+    ) as conn:
         conn.read_only = True
         with conn.cursor() as cur:
             cur.execute(sql, {"user_id": user_id})
             row = cur.fetchone()
     return UserContext(**row) if row else None
+
+
+logger = logging.getLogger(__name__)
+
+# Connection-level database faults, as opposed to a bad query.
+_DB_FAULTS = (psycopg.OperationalError, psycopg.InterfaceError)
+
+
+def _is_transport_fault(exc: BaseException) -> bool:
+    """A network fault reaching the model, rather than a bad answer from it.
+
+    ponytail: matched on the exception's top-level module, because the HTTP client
+    behind a chat model is an implementation detail that changes with the backend and
+    is not worth importing three libraries to name precisely.
+    """
+    root = type(exc).__module__.split(".")[0]
+    return root in {"requests", "httpx", "urllib3", "http", "socket", "ssl"} or isinstance(
+        exc, (TimeoutError, ConnectionError)
+    )
+
+
+def describe_failure(exc: BaseException) -> tuple[int, str]:
+    """Map an exception to a status and a message the asker can be shown.
+
+    None of these may be the generic refusal. A broken dependency must never be
+    reported in the same words as a withheld answer: it would mislead on stage, and it
+    would give that sentence a third meaning, weakening the property that a refusal
+    reveals nothing (§5).
+    """
+    if isinstance(exc, NotImplementedError):
+        return 501, "That part of the system is not built yet."
+    if isinstance(exc, _DB_FAULTS):
+        return 503, "The knowledge store is unavailable."
+    if _is_transport_fault(exc):
+        return 503, "The language model did not respond in time."
+    return 503, "The service is temporarily unavailable."
+
+
+def check_database() -> str:
+    settings = get_settings()
+    try:
+        with psycopg.connect(
+            settings.database_url, connect_timeout=settings.db_connect_timeout_seconds
+        ):
+            return "ok"
+    except Exception:
+        return "unavailable"
+
+
+def check_llm() -> str:
+    """Cheap reachability check. Only the local backend can be probed without a bill."""
+    settings = get_settings()
+    if settings.llm_backend == "fake":
+        return "ok"
+    if settings.llm_backend != "ollama":
+        return "unchecked"
+    try:
+        import urllib.request
+
+        with urllib.request.urlopen(
+            f"{settings.ollama_base_url}/api/tags", timeout=settings.db_connect_timeout_seconds
+        ) as response:
+            return "ok" if response.status == 200 else "unavailable"
+    except Exception:
+        return "unavailable"
 
 
 def _pending(name: str, owner: str) -> Callable[[GraphState], dict]:
@@ -111,6 +182,30 @@ def create_app(nodes: dict | None = None, user_loader=load_user) -> FastAPI:
         if user is None:
             raise HTTPException(status_code=404, detail="Unknown user")
         return user
+
+    @app.exception_handler(Exception)
+    def unhandled(request: Request, exc: Exception) -> JSONResponse:
+        """Anything unplanned becomes an honest error, never a fabricated answer.
+
+        Registered app-wide so a fault raised while resolving the caller is handled the
+        same as one raised inside the graph.
+        """
+        status, message = describe_failure(exc)
+        # exc_info=exc rather than logger.exception(): inside a FastAPI handler the
+        # exception is no longer active in sys.exc_info(), so the traceback that
+        # actually diagnoses a failed demo would be logged as "NoneType: None".
+        logger.error("request failed: %s", type(exc).__name__, exc_info=exc)
+        return JSONResponse(status_code=status, content={"detail": message})
+
+    @app.get("/health")
+    def health() -> JSONResponse:
+        """Readiness for the demo. Check this before presenting, not during."""
+        checks = {"database": check_database(), "llm": check_llm()}
+        healthy = all(v in {"ok", "unchecked"} for v in checks.values())
+        return JSONResponse(
+            status_code=200 if healthy else 503,
+            content={"status": "ok" if healthy else "degraded", "checks": checks},
+        )
 
     @app.post("/query", response_model=AskerResponse)
     def query(request: QueryRequest, user: UserContext = Depends(resolve_user)) -> AskerResponse:

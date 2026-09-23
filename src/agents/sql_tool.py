@@ -159,7 +159,12 @@ def _psycopg_execute(sql: str, params: dict) -> list[dict]:
     from src.config import get_settings
 
     # Read-only: a templated SELECT cannot write, and the transaction says so too.
-    with psycopg.connect(get_settings().database_url, row_factory=dict_row) as conn:
+    settings = get_settings()
+    with psycopg.connect(
+        settings.database_url,
+        row_factory=dict_row,
+        connect_timeout=settings.db_connect_timeout_seconds,
+    ) as conn:
         conn.read_only = True
         with conn.cursor() as cur:
             cur.execute(sql, params)

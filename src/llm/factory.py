@@ -39,7 +39,10 @@ def get_chat_model():
         # temperature 0: the Router picks a label and the Verifier returns a verdict.
         # Neither is a creative task, and determinism makes the demo reproducible.
         return ChatOllama(
-            model=s.ollama_model, base_url=s.ollama_base_url, temperature=0
+            model=s.ollama_model,
+            base_url=s.ollama_base_url,
+            temperature=0,
+            timeout=s.llm_timeout_seconds,
         )
     return ChatHunyuan(
         hunyuan_app_id=s.hunyuan_app_id,
