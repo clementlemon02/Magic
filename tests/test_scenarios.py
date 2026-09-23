@@ -211,3 +211,54 @@ def test_scenario_3_never_puts_restricted_content_in_a_prompt():
     assert "Answer with exactly one word" in chat.prompts[0]
     for prompt in chat.prompts:
         assert "aml-escalation" not in prompt.lower()
+
+
+def test_a_restricted_refusal_is_indistinguishable_from_having_no_answer():
+    """The oracle property, and the reason the refusal is deliberately uninformative.
+
+    A caller must not be able to tell "there is an answer you may not see" apart from
+    "there is no answer". If the two responses differ by so much as a word, asking
+    becomes a way to enumerate what restricted material exists — which is how the
+    prompt-based baseline in evals/leak_probe.py discloses the corpus on 6 probes out
+    of 6 while never quoting a restricted document.
+    """
+    chat = FakeChatModel(route="rag", grounded=False, unsupported=["nothing found"], confidence=0.9)
+
+    def restricted_retrieval(state):
+        return {
+            "hop_count": state.get("hop_count", 0) + 1,
+            "permission_conflicts": [
+                PermConflict(
+                    document_id=7,
+                    source_platform="confluence",
+                    source_ref="COMPLIANCE/aml-escalation",
+                    sensitivity="restricted",
+                    score_margin=0.31,
+                )
+            ],
+        }
+
+    def empty_retrieval(state):
+        return {"hop_count": state.get("hop_count", 0) + 1, "retrieved_chunks": []}
+
+    def client(retrieval):
+        nodes = _real_nodes(
+            chat,
+            retrieval=retrieval,
+            escalation=lambda s: {"escalated": True, "explanation": "internal reason"},
+            audit=lambda s: {"audit_events": []},
+        )
+        return TestClient(create_app(nodes=nodes, user_loader=lambda uid: ALEX))
+
+    restricted = client(restricted_retrieval).post(
+        "/query", json={"query": "What triggers an AML escalation review?", "user_id": 1}
+    )
+    unanswerable = client(empty_retrieval).post(
+        "/query", json={"query": "What is our parental leave policy?", "user_id": 1}
+    )
+
+    assert restricted.status_code == unanswerable.status_code == 200
+    assert restricted.json() == unanswerable.json(), (
+        "restricted and unanswerable responses differ — the response is an oracle"
+    )
+    assert restricted.json()["text"] == GENERIC_REFUSAL

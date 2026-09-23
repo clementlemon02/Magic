@@ -11,7 +11,7 @@ and a template cannot opt out of it.
 
 import json
 import re
-from datetime import date
+from datetime import date, timedelta
 
 from src.graph.state import GraphState, UserContext
 
@@ -69,9 +69,13 @@ Available queries:
 {catalogue}
 
 Reply with JSON only, no prose and no code fences:
-{{"template": "<name>", "start": "YYYY-MM-DD", "end": "YYYY-MM-DD", "dept": "<department or null>"}}
+{{"template": "<name>", "start": "YYYY-MM-DD", "end_inclusive": "YYYY-MM-DD", "dept": "<department or null>"}}
 
-"start" is inclusive, "end" is exclusive. Resolve relative periods against today, {today}.
+"start" is the first day of the period and "end_inclusive" is the LAST DAY INSIDE it —
+for August 2026 that is 2026-08-01 and 2026-08-31. Resolve relative periods against
+today, {today}.
+Quarters are calendar quarters: Q1 is Jan-Mar, Q2 Apr-Jun, Q3 Jul-Sep, Q4 Oct-Dec.
+A named month means that whole month. "Last month" is the month before today's.
 Set "dept" only if the question names a department; otherwise null.
 If no query fits, reply {{"template": null}}.
 
@@ -100,10 +104,14 @@ def _parse_plan(raw: str) -> dict | None:
     if name not in TEMPLATES:
         return None  # includes an explicit null — no template fits
 
+    # The model names the last day inside the period; the half-open bound the SQL
+    # needs is computed here. Asking for an exclusive end directly does not work —
+    # qwen2.5 returns 2026-12-31 for "the whole of 2026" whatever the prompt says,
+    # which silently drops the last day of every period.
     try:
         params = {
             "start": date.fromisoformat(str(plan["start"])),
-            "end": date.fromisoformat(str(plan["end"])),
+            "end": date.fromisoformat(str(plan["end_inclusive"])) + timedelta(days=1),
         }
     except (KeyError, TypeError, ValueError):
         return None
@@ -151,7 +159,12 @@ def _psycopg_execute(sql: str, params: dict) -> list[dict]:
     from src.config import get_settings
 
     # Read-only: a templated SELECT cannot write, and the transaction says so too.
-    with psycopg.connect(get_settings().database_url, row_factory=dict_row) as conn:
+    settings = get_settings()
+    with psycopg.connect(
+        settings.database_url,
+        row_factory=dict_row,
+        connect_timeout=settings.db_connect_timeout_seconds,
+    ) as conn:
         conn.read_only = True
         with conn.cursor() as cur:
             cur.execute(sql, params)

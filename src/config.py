@@ -39,6 +39,12 @@ class Settings(BaseSettings):
     verifier_confidence_threshold: float = 0.6
     permission_conflict_score_margin: float = 0.05
 
+    # Nothing may hang forever during a live demo. Both defaults are generous enough
+    # for a 7B on a laptop and short enough that a wedged dependency surfaces on stage
+    # as a clear error rather than a spinner.
+    llm_timeout_seconds: int = 30
+    db_connect_timeout_seconds: int = 5
+
     api_host: str = "0.0.0.0"
     api_port: int = 8000
 

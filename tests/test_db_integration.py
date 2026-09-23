@@ -100,7 +100,7 @@ def test_acl_predicate_excludes_rows_the_caller_cannot_see(seeded_transactions):
         SUPPORT,
         _psycopg_execute,
         chat_model=FakeChat(
-            '{"template": "count_flagged_aml", "start": "2026-08-01", "end": "2026-09-01", "dept": null}'
+            '{"template": "count_flagged_aml", "start": "2026-08-01", "end_inclusive": "2026-08-31", "dept": null}'
         ),
     )
     # Two flagged rows exist in range; only one carries a tag Alex holds.
@@ -119,7 +119,7 @@ def test_a_compliance_caller_sees_the_restricted_row(seeded_transactions):
         marcus,
         _psycopg_execute,
         chat_model=FakeChat(
-            '{"template": "sum_amount", "start": "2026-08-01", "end": "2026-09-01", "dept": null}'
+            '{"template": "sum_amount", "start": "2026-08-01", "end_inclusive": "2026-08-31", "dept": null}'
         ),
     )
     total = sum(r["total_amount"] for r in out["rows"])
@@ -134,7 +134,7 @@ def test_sum_amount_excludes_the_restricted_row(seeded_transactions):
         SUPPORT,
         _psycopg_execute,
         chat_model=FakeChat(
-            '{"template": "sum_amount", "start": "2026-08-01", "end": "2026-09-01", "dept": null}'
+            '{"template": "sum_amount", "start": "2026-08-01", "end_inclusive": "2026-08-31", "dept": null}'
         ),
     )
     total = sum(r["total_amount"] for r in out["rows"])
