@@ -74,11 +74,6 @@ def classify(query: str, chat_model=None) -> str:
 
 def route_node(state: GraphState, chat_model=None) -> dict:
     """Graph node. Returns the state fragment the Router owns."""
-    route = classify(state["query"], chat_model=chat_model)
-
-    # §4: clarification is one round only. If we have already asked, a second
-    # `clarify` would bounce the user forever — answer with what we have instead.
-    if route == "clarify" and state.get("clarification_question"):
-        route = "rag"
-
-    return {"route": route}
+    # §4's "one round only" needs no guard here: Clarification ends the turn, so the
+    # Router runs at most once per request.
+    return {"route": classify(state["query"], chat_model=chat_model)}

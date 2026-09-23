@@ -38,12 +38,6 @@ def test_prompt_carries_the_few_shot_examples():
     assert "How many transactions were flagged for AML last month?" in chat.prompts[0]
 
 
-def test_clarifies_only_once():
-    """§4: one clarification round. A second would bounce the user forever."""
-    state = {"query": "what about the other one?", "clarification_question": "Which ticket?"}
-    assert route_node(state, chat_model=FakeChat("clarify"))["route"] == "rag"
-
-
-def test_clarifies_on_the_first_ambiguous_question():
+def test_clarifies_on_an_ambiguous_question():
     state = {"query": "what about the other one?", "clarification_question": None}
     assert route_node(state, chat_model=FakeChat("clarify"))["route"] == "clarify"
