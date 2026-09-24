@@ -134,6 +134,7 @@ def _pending(name: str, owner: str) -> Callable[[GraphState], dict]:
 
 def default_nodes() -> dict[str, Callable[[GraphState], dict]]:
     from src.agents.clarification import clarify_node
+    from src.agents.retrieval import retrieval_node
     from src.agents.router import route_node
     from src.agents.sql_tool import sql_tool_node
     from src.agents.synthesizer import synthesize_node
@@ -145,8 +146,8 @@ def default_nodes() -> dict[str, Callable[[GraphState], dict]]:
         "synthesizer": synthesize_node,
         "verifier": verify_node,
         "sql_tool": sql_tool_node,
+        "retrieval": retrieval_node,
         # ponytail: placeholders until these land. Swap one line each on merge.
-        "retrieval": _pending("retrieval", "Chris"),
         "escalation": _pending("escalation", "Jin Hui"),
         "audit": _pending("audit", "Jin Hui"),
     }
