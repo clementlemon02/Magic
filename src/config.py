@@ -45,6 +45,13 @@ class Settings(BaseSettings):
     llm_timeout_seconds: int = 30
     db_connect_timeout_seconds: int = 5
 
+    # Constant-time refusal (docs/design/constant-time-refusal.md). Every refusal is
+    # held until this long after the request arrived, so its timing can't reveal
+    # whether it was withheld or simply unanswerable. PER-HARDWARE: 4.0s measured on
+    # an M3 Pro with qwen2.5:7b; re-measure with evals/refusal_timing.py elsewhere.
+    refusal_padding_enabled: bool = True
+    refusal_deadline_seconds: float = 4.0
+
     # Semantic answer cache. The similarity floor is per-model, like
     # retrieval_min_score — re-measure it if the embedding model changes.
     query_cache_enabled: bool = True

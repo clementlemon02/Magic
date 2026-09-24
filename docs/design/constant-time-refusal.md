@@ -1,9 +1,9 @@
 # Constant-time refusal
 
-**Status:** proposed — baseline measured, not implemented
+**Status:** implemented — 4.0s deadline, verified on the real stack (§15)
 **Owner:** Clement (orchestration)
 **Touches:** `src/api/main.py` (§8 shared), `src/config.py`, `.env.example` (§8 shared)
-**Baseline:** `evals/results/refusal_timing_baseline.json`, commit `b641922`
+**Results:** `evals/results/refusal_timing_baseline.json` (before), `refusal_timing_padded.json` (after)
 
 ---
 
@@ -196,7 +196,43 @@ A refusal arriving *after* the deadline is necessarily not the fast conflict pat
 - **Connection pressure.** Async sleep prevents thread starvation but not open-connection count. Per-caller rate limiting is the backstop if it matters.
 - **Only two of four refusal causes measured** (§4). The unmeasured ones could be faster than the conflict path; padding covers them regardless, but the baseline doesn't prove it.
 
-## 14. Decision needed
+## 14. Decisions
 
-- **The deadline value.** Recommendation: **4.0s**, per §7.
-- **Whether to pursue dummy work as a follow-up**, for variance-matched rather than median-matched timing.
+- **Deadline: 4.0s**, chosen 24 Sep 2026 per §7.
+- **Dummy work: deferred.** Median-matched padding meets every target in §12; revisit only if a variance-level attack is demonstrated.
+
+## 15. Results
+
+Same probe, same corpus, same hardware, padding off then on. Two padded runs; both are shown because the second exists to check the first.
+
+| measure | baseline | padded, run 1 | padded, run 2 | target | |
+|---|---|---|---|---|---|
+| distributions overlap | no | yes | yes | yes | met |
+| median ratio, conflict ÷ other | 0.49 | 1.000 | 1.000 | 0.95–1.05 | met |
+| refusals escaping the deadline | — | 0 / 70 | 0 / 70 | ≤ 1% | met |
+| distinct refusal texts | 1 | 1 | 1 | 1 | met |
+| answer p50 | 3.75s | 3.80s | 3.80s | unchanged | met |
+| clarification p50 | 1.75s | 1.78s | 1.78s | unchanged | met |
+
+**No residual signal at millisecond precision.** Padded refusals land a few milliseconds past the deadline — the response serialised after the sleep, the same work whatever caused the refusal:
+
+| run | conflict, ms past deadline | ungrounded, ms past deadline | median gap |
+|---|---|---|---|
+| 1 | p50 5.26, range 2.90–7.49 | p50 5.48, range 2.49–6.83 | 0.21ms |
+| 2 | p50 5.51, range 2.88–18.29 | p50 5.60, range 3.19–8.04 | 0.09ms |
+
+Ranges overlap in both runs, and the gap is far below the jitter of any real network. One conflict refusal in run 2 landed 18ms late — the tail of the serialisation overhead, not an escape, and well inside the tolerance.
+
+**Unit tests** cover every behaviour in §12 with an injected clock, plus a real-time concurrency test: 50 refusals held simultaneously, a concurrent answer returning in under half the deadline, and all 50 finishing together rather than in sequence.
+
+### Found during implementation
+
+- **The unit suite had silently required Postgres since #11.** `create_app` builds a real answer cache by default, and every `/query` fingerprinted the caller against the database, so with Docker stopped most API tests would fail with 503s. `tests/conftest.py` now disables the default cache and padding for the suite; tests that exercise either inject their own. Verified by running the suite with Postgres stopped: 123 passed, 12 correctly skipped, none failed.
+- **The first padded run reported 100% of refusals escaping.** The criterion counted `t > deadline` with no allowance for the few milliseconds of post-sleep overhead, so every padded refusal failed it. It now counts a refusal as escaped only when it is more than 50ms late — about three times the worst overhead observed — and the tolerance is stated in the eval. No refusal in either run was more than 18ms late, so nothing escaped.
+- **Converting `/query` to async changed no existing behaviour.** All 123 prior tests passed unmodified, including the 404 for an unknown caller and the 503 for a failed caller lookup, both of which now raise inside the threadpool.
+
+### Still open
+
+- **Re-measure when the corpus grows** (§11 step 7). Only two of four refusal causes were exercised, and a larger corpus moves both the tail and the deadline.
+- **Re-measure on the demo machine.** 4.0s is an M3 Pro figure.
+- **Out-of-scope channels in §10 are unchanged** — the prefix-cache channel on answers and the answer-cache peer-activity leak.
