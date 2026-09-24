@@ -45,6 +45,11 @@ class Settings(BaseSettings):
     llm_timeout_seconds: int = 30
     db_connect_timeout_seconds: int = 5
 
+    # Semantic answer cache. The similarity floor is per-model, like
+    # retrieval_min_score — re-measure it if the embedding model changes.
+    query_cache_enabled: bool = True
+    query_cache_similarity: float = 0.93
+
     api_host: str = "0.0.0.0"
     api_port: int = 8000
 
