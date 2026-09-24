@@ -1,0 +1,847 @@
+{
+  "commit": "b641922",
+  "machine": "arm64",
+  "chat_model": "qwen2.5:7b",
+  "embedding_model": "mxbai-embed-large",
+  "runs_per_question": 10,
+  "classes": {
+    "refused: ungrounded (3 hops)": {
+      "n": 40,
+      "min": 1.4444762920029461,
+      "p50": 2.4953963750012917,
+      "p95": 2.7925905201969727,
+      "max": 2.990712832994177
+    },
+    "answered": {
+      "n": 20,
+      "min": 2.922838625003351,
+      "p50": 3.752847625000868,
+      "p95": 3.9321820920020403,
+      "max": 4.0985185419995105
+    },
+    "clarified": {
+      "n": 20,
+      "min": 0.9974205829930725,
+      "p50": 1.7485471040054108,
+      "p95": 2.075882494061079,
+      "max": 2.0905353330017533
+    },
+    "refused: permission conflict": {
+      "n": 30,
+      "min": 0.1759737920074258,
+      "p50": 1.2304905830023927,
+      "p95": 1.248894878502324,
+      "max": 1.359054833999835
+    }
+  },
+  "distinct_refusal_texts": 1,
+  "deadline_curve": [
+    {
+      "deadline": 1.0,
+      "all_refusals_exceeding": 0.9,
+      "non_conflict_exceeding": 1.0
+    },
+    {
+      "deadline": 2.0,
+      "all_refusals_exceeding": 0.4142857142857143,
+      "non_conflict_exceeding": 0.725
+    },
+    {
+      "deadline": 3.0,
+      "all_refusals_exceeding": 0.0,
+      "non_conflict_exceeding": 0.0
+    },
+    {
+      "deadline": 4.0,
+      "all_refusals_exceeding": 0.0,
+      "non_conflict_exceeding": 0.0
+    },
+    {
+      "deadline": 5.0,
+      "all_refusals_exceeding": 0.0,
+      "non_conflict_exceeding": 0.0
+    },
+    {
+      "deadline": 6.0,
+      "all_refusals_exceeding": 0.0,
+      "non_conflict_exceeding": 0.0
+    },
+    {
+      "deadline": 8.0,
+      "all_refusals_exceeding": 0.0,
+      "non_conflict_exceeding": 0.0
+    }
+  ],
+  "samples": [
+    {
+      "question": "What fee is charged on a refund?",
+      "class": "refused: ungrounded (3 hops)",
+      "seconds": 2.990712832994177,
+      "status": 200,
+      "text": "I don't have an answer you're permitted to see for this requ"
+    },
+    {
+      "question": "What happened with the refund workflow incident?",
+      "class": "answered",
+      "seconds": 3.923427542002173,
+      "status": 200,
+      "text": "The refund workflow incident was resolved after queue replay"
+    },
+    {
+      "question": "Where is the office cafeteria?",
+      "class": "clarified",
+      "seconds": 1.8428818749962375,
+      "status": 200,
+      "text": "Which office location are you referring to?"
+    },
+    {
+      "question": "How long does support have to review a refund request?",
+      "class": "answered",
+      "seconds": 4.0985185419995105,
+      "status": 200,
+      "text": "Support must review refund requests within five business day"
+    },
+    {
+      "question": "What triggers an AML escalation review?",
+      "class": "refused: permission conflict",
+      "seconds": 1.359054833999835,
+      "status": 200,
+      "text": "I don't have an answer you're permitted to see for this requ"
+    },
+    {
+      "question": "What is our parental leave policy?",
+      "class": "refused: ungrounded (3 hops)",
+      "seconds": 1.7284139999974286,
+      "status": 200,
+      "text": "I don't have an answer you're permitted to see for this requ"
+    },
+    {
+      "question": "What fee is charged on a refund?",
+      "class": "refused: ungrounded (3 hops)",
+      "seconds": 2.7338596250046976,
+      "status": 200,
+      "text": "I don't have an answer you're permitted to see for this requ"
+    },
+    {
+      "question": "What fee is charged on a refund?",
+      "class": "refused: ungrounded (3 hops)",
+      "seconds": 2.5070508750068257,
+      "status": 200,
+      "text": "I don't have an answer you're permitted to see for this requ"
+    },
+    {
+      "question": "What does the AML evidence register contain?",
+      "class": "refused: permission conflict",
+      "seconds": 1.2334247499966295,
+      "status": 200,
+      "text": "I don't have an answer you're permitted to see for this requ"
+    },
+    {
+      "question": "How long does support have to review a refund request?",
+      "class": "answered",
+      "seconds": 2.9443824579939246,
+      "status": 200,
+      "text": "Support must review refund requests within five business day"
+    },
+    {
+      "question": "What does the AML evidence register contain?",
+      "class": "refused: permission conflict",
+      "seconds": 1.236795250006253,
+      "status": 200,
+      "text": "I don't have an answer you're permitted to see for this requ"
+    },
+    {
+      "question": "What is our parental leave policy?",
+      "class": "refused: ungrounded (3 hops)",
+      "seconds": 1.4474039170017932,
+      "status": 200,
+      "text": "I don't have an answer you're permitted to see for this requ"
+    },
+    {
+      "question": "What is the AML control gap?",
+      "class": "refused: permission conflict",
+      "seconds": 1.2492826660018181,
+      "status": 200,
+      "text": "I don't have an answer you're permitted to see for this requ"
+    },
+    {
+      "question": "What fee is charged on a refund?",
+      "class": "refused: ungrounded (3 hops)",
+      "seconds": 1.6653782920038793,
+      "status": 200,
+      "text": "I don't have an answer you're permitted to see for this requ"
+    },
+    {
+      "question": "What happened with the refund workflow incident?",
+      "class": "answered",
+      "seconds": 3.7652677920123097,
+      "status": 200,
+      "text": "The refund workflow incident was resolved after queue replay"
+    },
+    {
+      "question": "Who approves refunds above the limit?",
+      "class": "refused: ungrounded (3 hops)",
+      "seconds": 2.711181749997195,
+      "status": 200,
+      "text": "I don't have an answer you're permitted to see for this requ"
+    },
+    {
+      "question": "How long do customers have to contest a chargeback?",
+      "class": "refused: ungrounded (3 hops)",
+      "seconds": 2.782506709001609,
+      "status": 200,
+      "text": "I don't have an answer you're permitted to see for this requ"
+    },
+    {
+      "question": "What does the AML evidence register contain?",
+      "class": "refused: permission conflict",
+      "seconds": 1.2299633330112556,
+      "status": 200,
+      "text": "I don't have an answer you're permitted to see for this requ"
+    },
+    {
+      "question": "What is our parental leave policy?",
+      "class": "refused: ungrounded (3 hops)",
+      "seconds": 1.4444762920029461,
+      "status": 200,
+      "text": "I don't have an answer you're permitted to see for this requ"
+    },
+    {
+      "question": "What is the company's stock ticker?",
+      "class": "clarified",
+      "seconds": 2.07511129201157,
+      "status": 200,
+      "text": "For which document or system is this question about the comp"
+    },
+    {
+      "question": "What triggers an AML escalation review?",
+      "class": "refused: permission conflict",
+      "seconds": 1.2299372080015019,
+      "status": 200,
+      "text": "I don't have an answer you're permitted to see for this requ"
+    },
+    {
+      "question": "What is our parental leave policy?",
+      "class": "refused: ungrounded (3 hops)",
+      "seconds": 1.4459609999903478,
+      "status": 200,
+      "text": "I don't have an answer you're permitted to see for this requ"
+    },
+    {
+      "question": "What triggers an AML escalation review?",
+      "class": "refused: permission conflict",
+      "seconds": 1.230577499998617,
+      "status": 200,
+      "text": "I don't have an answer you're permitted to see for this requ"
+    },
+    {
+      "question": "What happened with the refund workflow incident?",
+      "class": "answered",
+      "seconds": 2.922838625003351,
+      "status": 200,
+      "text": "The refund workflow incident was resolved after queue replay"
+    },
+    {
+      "question": "What happened with the refund workflow incident?",
+      "class": "answered",
+      "seconds": 3.7410702089982806,
+      "status": 200,
+      "text": "The refund workflow incident was resolved after queue replay"
+    },
+    {
+      "question": "How long do customers have to contest a chargeback?",
+      "class": "refused: ungrounded (3 hops)",
+      "seconds": 2.787475916004041,
+      "status": 200,
+      "text": "I don't have an answer you're permitted to see for this requ"
+    },
+    {
+      "question": "What is the AML control gap?",
+      "class": "refused: permission conflict",
+      "seconds": 1.2294801249954617,
+      "status": 200,
+      "text": "I don't have an answer you're permitted to see for this requ"
+    },
+    {
+      "question": "How long does support have to review a refund request?",
+      "class": "answered",
+      "seconds": 2.926743958989391,
+      "status": 200,
+      "text": "Support must review refund requests within five business day"
+    },
+    {
+      "question": "Who approves refunds above the limit?",
+      "class": "refused: ungrounded (3 hops)",
+      "seconds": 2.6948446669994155,
+      "status": 200,
+      "text": "I don't have an answer you're permitted to see for this requ"
+    },
+    {
+      "question": "How long does support have to review a refund request?",
+      "class": "answered",
+      "seconds": 3.7431034999899566,
+      "status": 200,
+      "text": "Support must review refund requests within five business day"
+    },
+    {
+      "question": "What is the AML control gap?",
+      "class": "refused: permission conflict",
+      "seconds": 1.226892417005729,
+      "status": 200,
+      "text": "I don't have an answer you're permitted to see for this requ"
+    },
+    {
+      "question": "What is the company's stock ticker?",
+      "class": "clarified",
+      "seconds": 1.2436975830059964,
+      "status": 200,
+      "text": "For which document or system is this question about the comp"
+    },
+    {
+      "question": "What fee is charged on a refund?",
+      "class": "refused: ungrounded (3 hops)",
+      "seconds": 2.4612145830033114,
+      "status": 200,
+      "text": "I don't have an answer you're permitted to see for this requ"
+    },
+    {
+      "question": "What is our parental leave policy?",
+      "class": "refused: ungrounded (3 hops)",
+      "seconds": 2.2498979170050006,
+      "status": 200,
+      "text": "I don't have an answer you're permitted to see for this requ"
+    },
+    {
+      "question": "Where is the office cafeteria?",
+      "class": "clarified",
+      "seconds": 1.7493556670087855,
+      "status": 200,
+      "text": "Which office location are you referring to?"
+    },
+    {
+      "question": "What does the AML evidence register contain?",
+      "class": "refused: permission conflict",
+      "seconds": 1.2314855000004172,
+      "status": 200,
+      "text": "I don't have an answer you're permitted to see for this requ"
+    },
+    {
+      "question": "What is the company's stock ticker?",
+      "class": "clarified",
+      "seconds": 1.2401763329980895,
+      "status": 200,
+      "text": "For which document or system is this question about the comp"
+    },
+    {
+      "question": "How long do customers have to contest a chargeback?",
+      "class": "refused: ungrounded (3 hops)",
+      "seconds": 2.7844329590006964,
+      "status": 200,
+      "text": "I don't have an answer you're permitted to see for this requ"
+    },
+    {
+      "question": "Who approves refunds above the limit?",
+      "class": "refused: ungrounded (3 hops)",
+      "seconds": 2.767425042009563,
+      "status": 200,
+      "text": "I don't have an answer you're permitted to see for this requ"
+    },
+    {
+      "question": "What fee is charged on a refund?",
+      "class": "refused: ungrounded (3 hops)",
+      "seconds": 2.462592541007325,
+      "status": 200,
+      "text": "I don't have an answer you're permitted to see for this requ"
+    },
+    {
+      "question": "Where is the office cafeteria?",
+      "class": "clarified",
+      "seconds": 1.745170207999763,
+      "status": 200,
+      "text": "Which office location are you referring to?"
+    },
+    {
+      "question": "What is the company's stock ticker?",
+      "class": "clarified",
+      "seconds": 2.052935541010811,
+      "status": 200,
+      "text": "For which document or system is this question about the comp"
+    },
+    {
+      "question": "How long does support have to review a refund request?",
+      "class": "answered",
+      "seconds": 3.740625791004277,
+      "status": 200,
+      "text": "Support must review refund requests within five business day"
+    },
+    {
+      "question": "What happened with the refund workflow incident?",
+      "class": "answered",
+      "seconds": 3.748314083000878,
+      "status": 200,
+      "text": "The refund workflow incident was resolved after queue replay"
+    },
+    {
+      "question": "What happened with the refund workflow incident?",
+      "class": "answered",
+      "seconds": 3.757381167000858,
+      "status": 200,
+      "text": "The refund workflow incident was resolved after queue replay"
+    },
+    {
+      "question": "What is our parental leave policy?",
+      "class": "refused: ungrounded (3 hops)",
+      "seconds": 2.18403837500955,
+      "status": 200,
+      "text": "I don't have an answer you're permitted to see for this requ"
+    },
+    {
+      "question": "Who approves refunds above the limit?",
+      "class": "refused: ungrounded (3 hops)",
+      "seconds": 2.77557466601138,
+      "status": 200,
+      "text": "I don't have an answer you're permitted to see for this requ"
+    },
+    {
+      "question": "Where is the office cafeteria?",
+      "class": "clarified",
+      "seconds": 1.747738541002036,
+      "status": 200,
+      "text": "Which office location are you referring to?"
+    },
+    {
+      "question": "What does the AML evidence register contain?",
+      "class": "refused: permission conflict",
+      "seconds": 1.2316244589892449,
+      "status": 200,
+      "text": "I don't have an answer you're permitted to see for this requ"
+    },
+    {
+      "question": "What does the AML evidence register contain?",
+      "class": "refused: permission conflict",
+      "seconds": 0.17769658399629407,
+      "status": 200,
+      "text": "I don't have an answer you're permitted to see for this requ"
+    },
+    {
+      "question": "Who approves refunds above the limit?",
+      "class": "refused: ungrounded (3 hops)",
+      "seconds": 1.9585062499972992,
+      "status": 200,
+      "text": "I don't have an answer you're permitted to see for this requ"
+    },
+    {
+      "question": "How long does support have to review a refund request?",
+      "class": "answered",
+      "seconds": 3.7586078330059536,
+      "status": 200,
+      "text": "Support must review refund requests within five business day"
+    },
+    {
+      "question": "How long do customers have to contest a chargeback?",
+      "class": "refused: ungrounded (3 hops)",
+      "seconds": 2.792099790996872,
+      "status": 200,
+      "text": "I don't have an answer you're permitted to see for this requ"
+    },
+    {
+      "question": "Who approves refunds above the limit?",
+      "class": "refused: ungrounded (3 hops)",
+      "seconds": 2.781094916004804,
+      "status": 200,
+      "text": "I don't have an answer you're permitted to see for this requ"
+    },
+    {
+      "question": "How long do customers have to contest a chargeback?",
+      "class": "refused: ungrounded (3 hops)",
+      "seconds": 2.7775567919889,
+      "status": 200,
+      "text": "I don't have an answer you're permitted to see for this requ"
+    },
+    {
+      "question": "What is our parental leave policy?",
+      "class": "refused: ungrounded (3 hops)",
+      "seconds": 2.2575319999887142,
+      "status": 200,
+      "text": "I don't have an answer you're permitted to see for this requ"
+    },
+    {
+      "question": "What is our parental leave policy?",
+      "class": "refused: ungrounded (3 hops)",
+      "seconds": 2.2663224169955356,
+      "status": 200,
+      "text": "I don't have an answer you're permitted to see for this requ"
+    },
+    {
+      "question": "What triggers an AML escalation review?",
+      "class": "refused: permission conflict",
+      "seconds": 1.2301739169924986,
+      "status": 200,
+      "text": "I don't have an answer you're permitted to see for this requ"
+    },
+    {
+      "question": "How long do customers have to contest a chargeback?",
+      "class": "refused: ungrounded (3 hops)",
+      "seconds": 1.960047750006197,
+      "status": 200,
+      "text": "I don't have an answer you're permitted to see for this requ"
+    },
+    {
+      "question": "How long does support have to review a refund request?",
+      "class": "answered",
+      "seconds": 3.734918332993402,
+      "status": 200,
+      "text": "Support must review refund requests within five business day"
+    },
+    {
+      "question": "Who approves refunds above the limit?",
+      "class": "refused: ungrounded (3 hops)",
+      "seconds": 2.697147583006881,
+      "status": 200,
+      "text": "I don't have an answer you're permitted to see for this requ"
+    },
+    {
+      "question": "How long do customers have to contest a chargeback?",
+      "class": "refused: ungrounded (3 hops)",
+      "seconds": 2.801914374998887,
+      "status": 200,
+      "text": "I don't have an answer you're permitted to see for this requ"
+    },
+    {
+      "question": "Where is the office cafeteria?",
+      "class": "clarified",
+      "seconds": 1.7444567500060657,
+      "status": 200,
+      "text": "Which office location are you referring to?"
+    },
+    {
+      "question": "Who approves refunds above the limit?",
+      "class": "refused: ungrounded (3 hops)",
+      "seconds": 2.780660958000226,
+      "status": 200,
+      "text": "I don't have an answer you're permitted to see for this requ"
+    },
+    {
+      "question": "What does the AML evidence register contain?",
+      "class": "refused: permission conflict",
+      "seconds": 1.2304036660061684,
+      "status": 200,
+      "text": "I don't have an answer you're permitted to see for this requ"
+    },
+    {
+      "question": "What is the AML control gap?",
+      "class": "refused: permission conflict",
+      "seconds": 0.41335724999953527,
+      "status": 200,
+      "text": "I don't have an answer you're permitted to see for this requ"
+    },
+    {
+      "question": "What does the AML evidence register contain?",
+      "class": "refused: permission conflict",
+      "seconds": 0.4143874169967603,
+      "status": 200,
+      "text": "I don't have an answer you're permitted to see for this requ"
+    },
+    {
+      "question": "How long do customers have to contest a chargeback?",
+      "class": "refused: ungrounded (3 hops)",
+      "seconds": 1.9925043330003973,
+      "status": 200,
+      "text": "I don't have an answer you're permitted to see for this requ"
+    },
+    {
+      "question": "What is the company's stock ticker?",
+      "class": "clarified",
+      "seconds": 2.0741259579954203,
+      "status": 200,
+      "text": "For which document or system is this question about the comp"
+    },
+    {
+      "question": "What is the AML control gap?",
+      "class": "refused: permission conflict",
+      "seconds": 1.2418020839977544,
+      "status": 200,
+      "text": "I don't have an answer you're permitted to see for this requ"
+    },
+    {
+      "question": "How long does support have to review a refund request?",
+      "class": "answered",
+      "seconds": 2.9379820830072276,
+      "status": 200,
+      "text": "Support must review refund requests within five business day"
+    },
+    {
+      "question": "How long do customers have to contest a chargeback?",
+      "class": "refused: ungrounded (3 hops)",
+      "seconds": 2.7860199169954285,
+      "status": 200,
+      "text": "I don't have an answer you're permitted to see for this requ"
+    },
+    {
+      "question": "What is the AML control gap?",
+      "class": "refused: permission conflict",
+      "seconds": 1.230353709004703,
+      "status": 200,
+      "text": "I don't have an answer you're permitted to see for this requ"
+    },
+    {
+      "question": "Where is the office cafeteria?",
+      "class": "clarified",
+      "seconds": 1.0031958339968696,
+      "status": 200,
+      "text": "Which office location are you referring to?"
+    },
+    {
+      "question": "What triggers an AML escalation review?",
+      "class": "refused: permission conflict",
+      "seconds": 1.231944332990679,
+      "status": 200,
+      "text": "I don't have an answer you're permitted to see for this requ"
+    },
+    {
+      "question": "What is the company's stock ticker?",
+      "class": "clarified",
+      "seconds": 1.2414018749987008,
+      "status": 200,
+      "text": "For which document or system is this question about the comp"
+    },
+    {
+      "question": "What happened with the refund workflow incident?",
+      "class": "answered",
+      "seconds": 3.8489159159944393,
+      "status": 200,
+      "text": "The refund workflow incident was resolved after queue replay"
+    },
+    {
+      "question": "What happened with the refund workflow incident?",
+      "class": "answered",
+      "seconds": 3.837012917007087,
+      "status": 200,
+      "text": "The refund workflow incident was resolved after queue replay"
+    },
+    {
+      "question": "What is the company's stock ticker?",
+      "class": "clarified",
+      "seconds": 2.0905353330017533,
+      "status": 200,
+      "text": "For which document or system is this question about the comp"
+    },
+    {
+      "question": "Where is the office cafeteria?",
+      "class": "clarified",
+      "seconds": 1.7590593750064727,
+      "status": 200,
+      "text": "Which office location are you referring to?"
+    },
+    {
+      "question": "What is the company's stock ticker?",
+      "class": "clarified",
+      "seconds": 2.0739079159975518,
+      "status": 200,
+      "text": "For which document or system is this question about the comp"
+    },
+    {
+      "question": "What happened with the refund workflow incident?",
+      "class": "answered",
+      "seconds": 3.7723879589902936,
+      "status": 200,
+      "text": "The refund workflow incident was resolved after queue replay"
+    },
+    {
+      "question": "What happened with the refund workflow incident?",
+      "class": "answered",
+      "seconds": 3.7708602500060806,
+      "status": 200,
+      "text": "The refund workflow incident was resolved after queue replay"
+    },
+    {
+      "question": "What is the company's stock ticker?",
+      "class": "clarified",
+      "seconds": 2.061065415997291,
+      "status": 200,
+      "text": "For which document or system is this question about the comp"
+    },
+    {
+      "question": "What does the AML evidence register contain?",
+      "class": "refused: permission conflict",
+      "seconds": 1.2342168749892153,
+      "status": 200,
+      "text": "I don't have an answer you're permitted to see for this requ"
+    },
+    {
+      "question": "What is the AML control gap?",
+      "class": "refused: permission conflict",
+      "seconds": 0.4146714999951655,
+      "status": 200,
+      "text": "I don't have an answer you're permitted to see for this requ"
+    },
+    {
+      "question": "Where is the office cafeteria?",
+      "class": "clarified",
+      "seconds": 1.0036740829964401,
+      "status": 200,
+      "text": "Which office location are you referring to?"
+    },
+    {
+      "question": "How long does support have to review a refund request?",
+      "class": "answered",
+      "seconds": 3.763736584005528,
+      "status": 200,
+      "text": "Support must review refund requests within five business day"
+    },
+    {
+      "question": "What fee is charged on a refund?",
+      "class": "refused: ungrounded (3 hops)",
+      "seconds": 2.4776363339915406,
+      "status": 200,
+      "text": "I don't have an answer you're permitted to see for this requ"
+    },
+    {
+      "question": "Where is the office cafeteria?",
+      "class": "clarified",
+      "seconds": 1.751251166992006,
+      "status": 200,
+      "text": "Which office location are you referring to?"
+    },
+    {
+      "question": "How long does support have to review a refund request?",
+      "class": "answered",
+      "seconds": 3.7480885419936385,
+      "status": 200,
+      "text": "Support must review refund requests within five business day"
+    },
+    {
+      "question": "How long do customers have to contest a chargeback?",
+      "class": "refused: ungrounded (3 hops)",
+      "seconds": 2.7858513750106795,
+      "status": 200,
+      "text": "I don't have an answer you're permitted to see for this requ"
+    },
+    {
+      "question": "What triggers an AML escalation review?",
+      "class": "refused: permission conflict",
+      "seconds": 1.2268884999939473,
+      "status": 200,
+      "text": "I don't have an answer you're permitted to see for this requ"
+    },
+    {
+      "question": "What fee is charged on a refund?",
+      "class": "refused: ungrounded (3 hops)",
+      "seconds": 1.6382624999969266,
+      "status": 200,
+      "text": "I don't have an answer you're permitted to see for this requ"
+    },
+    {
+      "question": "What fee is charged on a refund?",
+      "class": "refused: ungrounded (3 hops)",
+      "seconds": 2.64536091699847,
+      "status": 200,
+      "text": "I don't have an answer you're permitted to see for this requ"
+    },
+    {
+      "question": "What is the AML control gap?",
+      "class": "refused: permission conflict",
+      "seconds": 1.2484209160029422,
+      "status": 200,
+      "text": "I don't have an answer you're permitted to see for this requ"
+    },
+    {
+      "question": "What triggers an AML escalation review?",
+      "class": "refused: permission conflict",
+      "seconds": 0.41814220800006296,
+      "status": 200,
+      "text": "I don't have an answer you're permitted to see for this requ"
+    },
+    {
+      "question": "What does the AML evidence register contain?",
+      "class": "refused: permission conflict",
+      "seconds": 0.4277830829960294,
+      "status": 200,
+      "text": "I don't have an answer you're permitted to see for this requ"
+    },
+    {
+      "question": "What is our parental leave policy?",
+      "class": "refused: ungrounded (3 hops)",
+      "seconds": 1.4999514170049224,
+      "status": 200,
+      "text": "I don't have an answer you're permitted to see for this requ"
+    },
+    {
+      "question": "What triggers an AML escalation review?",
+      "class": "refused: permission conflict",
+      "seconds": 1.2306863329868065,
+      "status": 200,
+      "text": "I don't have an answer you're permitted to see for this requ"
+    },
+    {
+      "question": "Where is the office cafeteria?",
+      "class": "clarified",
+      "seconds": 0.9974205829930725,
+      "status": 200,
+      "text": "Which office location are you referring to?"
+    },
+    {
+      "question": "Who approves refunds above the limit?",
+      "class": "refused: ungrounded (3 hops)",
+      "seconds": 2.7758304169983603,
+      "status": 200,
+      "text": "I don't have an answer you're permitted to see for this requ"
+    },
+    {
+      "question": "What is the AML control gap?",
+      "class": "refused: permission conflict",
+      "seconds": 1.2388234579993878,
+      "status": 200,
+      "text": "I don't have an answer you're permitted to see for this requ"
+    },
+    {
+      "question": "What is our parental leave policy?",
+      "class": "refused: ungrounded (3 hops)",
+      "seconds": 1.4618825000070501,
+      "status": 200,
+      "text": "I don't have an answer you're permitted to see for this requ"
+    },
+    {
+      "question": "What triggers an AML escalation review?",
+      "class": "refused: permission conflict",
+      "seconds": 1.23153104200901,
+      "status": 200,
+      "text": "I don't have an answer you're permitted to see for this requ"
+    },
+    {
+      "question": "What triggers an AML escalation review?",
+      "class": "refused: permission conflict",
+      "seconds": 0.1759737920074258,
+      "status": 200,
+      "text": "I don't have an answer you're permitted to see for this requ"
+    },
+    {
+      "question": "What is the company's stock ticker?",
+      "class": "clarified",
+      "seconds": 1.256388458001311,
+      "status": 200,
+      "text": "For which document or system is this question about the comp"
+    },
+    {
+      "question": "What fee is charged on a refund?",
+      "class": "refused: ungrounded (3 hops)",
+      "seconds": 2.483741874995758,
+      "status": 200,
+      "text": "I don't have an answer you're permitted to see for this requ"
+    },
+    {
+      "question": "What is the AML control gap?",
+      "class": "refused: permission conflict",
+      "seconds": 1.2417065829940839,
+      "status": 200,
+      "text": "I don't have an answer you're permitted to see for this requ"
+    },
+    {
+      "question": "Who approves refunds above the limit?",
+      "class": "refused: ungrounded (3 hops)",
+      "seconds": 2.0878227920038626,
+      "status": 200,
+      "text": "I don't have an answer you're permitted to see for this requ"
+    }
+  ]
+}
