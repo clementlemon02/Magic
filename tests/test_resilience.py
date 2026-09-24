@@ -134,3 +134,53 @@ def test_health_is_degraded_when_the_llm_is_unreachable(monkeypatch):
         assert check_llm() == "unavailable"
     finally:
         get_settings.cache_clear()
+
+
+def test_refusals_are_never_cached():
+    """A refusal owes an escalations row (§4); serving one from memory would skip
+    the graph that writes it. Only answers are cached.
+    """
+    from src.cache import PermissionAwareCache
+    from src.graph.state import PermConflict
+
+    class FakeEmb:
+        def embed_query(self, text):
+            return [1.0, 0.0]
+
+    cache = PermissionAwareCache(embeddings=FakeEmb(), execute=lambda sql, p: [])
+    conflict = PermConflict(
+        document_id=7, source_platform="confluence", source_ref="COMPLIANCE/aml",
+        sensitivity="restricted", score_margin=0.3,
+    )
+    app = create_app(
+        nodes=_nodes(retrieval=lambda s: {"hop_count": 1, "permission_conflicts": [conflict]}),
+        user_loader=lambda uid: ALEX,
+        cache=cache,
+    )
+    client = TestClient(app, raise_server_exceptions=False)
+
+    first = client.post("/query", json={"query": "what triggers aml review", "user_id": 1})
+    assert first.json()["text"] == GENERIC_REFUSAL
+    assert cache._entries == [], "a refusal was cached"
+
+    # The second request must go through the graph again, not the cache.
+    second = client.post("/query", json={"query": "what triggers aml review", "user_id": 1})
+    assert second.json()["text"] == GENERIC_REFUSAL
+    assert cache.hits == 0
+
+
+def test_answers_are_cached_and_served():
+    from src.cache import PermissionAwareCache
+
+    class FakeEmb:
+        def embed_query(self, text):
+            return [1.0, 0.0]
+
+    cache = PermissionAwareCache(embeddings=FakeEmb(), execute=lambda sql, p: [])
+    client = TestClient(
+        create_app(nodes=_nodes(), user_loader=lambda uid: ALEX, cache=cache),
+        raise_server_exceptions=False,
+    )
+    client.post("/query", json={"query": "how long to review a refund", "user_id": 1})
+    client.post("/query", json={"query": "how long to review a refund", "user_id": 1})
+    assert cache.hits == 1

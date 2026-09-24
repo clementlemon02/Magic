@@ -18,6 +18,7 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
+from src.cache import PermissionAwareCache
 from src.config import get_settings
 from src.graph.graph import build_graph, build_response
 from src.graph.state import AskerResponse, GraphState, UserContext
@@ -173,9 +174,13 @@ def initial_state(query: str, user: UserContext) -> GraphState:
     }
 
 
-def create_app(nodes: dict | None = None, user_loader=load_user) -> FastAPI:
+def create_app(nodes: dict | None = None, user_loader=load_user, cache=None) -> FastAPI:
     app = FastAPI(title="Internal Brain")
     graph = build_graph(**(nodes or default_nodes()))
+    if cache is None and get_settings().query_cache_enabled:
+        cache = PermissionAwareCache(
+            similarity_threshold=get_settings().query_cache_similarity
+        )
 
     def resolve_user(request: QueryRequest) -> UserContext:
         user = user_loader(request.user_id)
@@ -209,10 +214,23 @@ def create_app(nodes: dict | None = None, user_loader=load_user) -> FastAPI:
 
     @app.post("/query", response_model=AskerResponse)
     def query(request: QueryRequest, user: UserContext = Depends(resolve_user)) -> AskerResponse:
+        if cache is not None:
+            cached = cache.get(request.query, user)
+            if cached is not None:
+                return cached
+
         state = graph.invoke(initial_state(request.query, user))
         # build_response is the only thing that shapes the reply: it cannot carry
         # `explanation`, so the §5 split holds at the boundary as well as in the graph.
-        return build_response(state)
+        response = build_response(state)
+
+        # Refusals are never cached. They are the security-critical path, every one
+        # of them owes an `escalations` row (§4), and serving one from memory would
+        # skip the graph that writes it. Answers are cached; a hit still owes an
+        # audit row, which the audit workstream has to emit here — see the PR.
+        if cache is not None and not state.get("escalated"):
+            cache.put(request.query, user, response)
+        return response
 
     return app
 
