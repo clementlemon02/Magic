@@ -57,6 +57,33 @@ ROUTER_CASES: list[tuple[str, str]] = [
 ]
 
 
+# --- Router: specific questions the corpus may not answer. ---
+# These must route rag, not clarify. "Is there a document for this?" is Retrieval's
+# question, not the Router's: a clarification here answers an unanswerable question
+# with a question, and never reaches Escalation, so it also never reaches the
+# knowledge-gap report. The first three were misrouted live. None of these phrasings
+# appears in router_examples.py.
+ROUTER_UNANSWERABLE: list[tuple[str, str]] = [
+    ("Can fathers take paternity leave?", "rag"),
+    ("My laptop broke, who issues a new one?", "rag"),
+    ("What is the office wifi password?", "rag"),
+    ("What is our parental leave policy?", "rag"),
+    ("How do I get a replacement laptop?", "rag"),
+    ("Do we reimburse gym memberships?", "rag"),
+    ("Who approves overtime for weekend shifts?", "rag"),
+    ("Is there a dress code for client meetings?", "rag"),
+    ("Where do I submit a travel expense claim?", "rag"),
+    ("How many vacation days carry over into next year?", "rag"),
+    ("What's the process for requesting a second monitor?", "rag"),
+    ("Which VPN should contractors use?", "rag"),
+    # Genuinely vague ones, so a fix can't win by never clarifying.
+    ("Can you check on that thing we discussed?", "clarify"),
+    ("Any update on it?", "clarify"),
+    ("What did they decide about the other one?", "clarify"),
+    ("Is that still happening?", "clarify"),
+]
+
+
 # --- Verifier: (question, answer, evidence, should_be_grounded) ---
 VERIFIER_CASES: list[tuple[str, str, list[Chunk], bool]] = [
     ("How long to contest a chargeback?",

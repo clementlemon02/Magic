@@ -44,6 +44,23 @@ EXAMPLES: list[dict] = [
         ),
     },
     {
+        # Specific but possibly unanswerable. Asking "which chair?" back would stall
+        # it; routing rag lets Retrieval find nothing and Escalation refuse.
+        "query": "Can I expense a chair for working from home?",
+        "route": "rag",
+        "why": "A clear subject. Whether any policy covers it is Retrieval's job to find out.",
+    },
+    {
+        "query": "Who do I call when my access badge stops working?",
+        "route": "rag",
+        "why": "Clear subject, even if broad. Never ask which badge or which office.",
+    },
+    {
+        "query": "How many sick days do new joiners get?",
+        "route": "rag",
+        "why": "'How many' about an entitlement is a policy, not a count over transactions.",
+    },
+    {
         "query": "Can you look into that issue from yesterday?",
         "route": "clarify",
         "why": "No resolvable subject — neither a document nor a table can be chosen.",
