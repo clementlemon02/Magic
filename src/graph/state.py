@@ -45,7 +45,10 @@ class UserContext(BaseModel):
         it — two copies of this would be two chances to disagree about who can see
         what. Callers pass the result as a query parameter; never interpolate it.
         """
-        return [self.role, self.dept]
+        # "all-staff" because every caller is staff: without it, content a source
+        # marks as company-wide (a public Slack channel, an all-staff Drive file)
+        # matched nobody. A live grant in `permissions` is still required on top.
+        return [self.role, self.dept, "all-staff"]
 
 
 class Citation(BaseModel):

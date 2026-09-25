@@ -116,8 +116,10 @@ def _parse_plan(raw: str) -> dict | None:
     except (KeyError, TypeError, ValueError):
         return None
 
-    dept = plan.get("dept")
-    params["dept"] = str(dept) if dept else None
+    # The model writes null as a string often enough to matter ("None", "null"), and
+    # a filter on a department called "None" silently returns zero.
+    dept = str(plan.get("dept") or "").strip()
+    params["dept"] = None if dept.lower() in {"", "none", "null", "all", "any"} else dept
     return {"template": name, "params": params}
 
 
