@@ -23,6 +23,20 @@ AuditEventType = Literal[
     "permission_conflict",
     "escalation",
     "final_answer",
+    # Outside the graph: a request served from the answer cache, and the
+    # compliance/admin actions, which are as much a part of the trail as a query.
+    "cache_hit",
+    "compliance_inquiry",
+    "permission_revoked",
+    "permission_granted",
+]
+# Why a request was refused. Stored in `escalations.reason` and in the audit trail,
+# never shown to the asker (§5).
+EscalationReason = Literal[
+    "permission_conflict",    # a restricted item outscored everything permitted
+    "insufficient_evidence",  # nothing permitted to draft from
+    "unsupported",            # draft still ungrounded at the hop cap
+    "low_confidence",         # Verifier below VERIFIER_CONFIDENCE_THRESHOLD
 ]
 
 # The exact asker-facing refusal (CLAUDE.md §5). Lives here because Escalation

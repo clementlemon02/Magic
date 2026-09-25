@@ -65,8 +65,8 @@ CREATE TABLE transactions (
 CREATE INDEX ON transactions (occurred_at);
 CREATE INDEX ON transactions (flagged_aml);
 
--- Tamper-evident: row_hash = SHA-256(prev_hash || request_id || event_type || payload || created_at),
--- computed at insert time by the Audit agent, never by the database. verify_audit_chain() (application code)
+-- Tamper-evident: row_hash = SHA-256 over canonical JSON of [prev_hash, request_id, event_type, user_id,
+-- payload, created_at] (src/agents/audit.py), computed at insert time by the Audit agent, never by the database. verify_audit_chain() (application code)
 -- walks this table in id order and flags the first row whose row_hash doesn't recompute cleanly.
 CREATE TABLE audit_log (
     id          BIGSERIAL PRIMARY KEY,
@@ -85,7 +85,7 @@ CREATE INDEX ON audit_log (request_id);
 CREATE TABLE escalations (
     id          SERIAL PRIMARY KEY,
     request_id  UUID NOT NULL,
-    reason      TEXT NOT NULL,                  -- 'permission_conflict' | 'low_confidence' | 'sensitivity_exceeded'
+    reason      TEXT NOT NULL,                  -- 'permission_conflict' | 'insufficient_evidence' | 'unsupported' | 'low_confidence'
     status      TEXT NOT NULL DEFAULT 'pending',-- 'pending' | 'reviewed' | 'dismissed'
     created_at  TIMESTAMPTZ DEFAULT now()
 );
