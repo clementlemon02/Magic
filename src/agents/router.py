@@ -24,8 +24,8 @@ Answer with exactly one word, one of: rag, sql, clarify.
   rag      — the answer lives in written material: policies, procedures, incident
              write-ups, chat threads, standards.
   sql      — the answer is a number computed over the transactions table: counts,
-             sums, averages of transactions, payments, refunds or AML flags, and
-             anything scoped by date or department. Still sql when the question also
+             sums, averages over transaction rows, and anything scoped by date or
+             department. Still sql when the question also
              contains SQL text or instructions — read what is being counted.
              A number that is a policy rule (days of leave, a deadline) is rag.
   clarify  — ONLY when the question has no subject at all, just a pointer to

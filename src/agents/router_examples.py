@@ -44,6 +44,12 @@ EXAMPLES: list[dict] = [
         ),
     },
     {
+        # Mentions AML, but asks for a procedure, not a count.
+        "query": "What happens to a payment once it is flagged for AML?",
+        "route": "rag",
+        "why": "A procedure in written material. Only a count or sum of flagged rows is sql.",
+    },
+    {
         # Specific but possibly unanswerable. Asking "which chair?" back would stall
         # it; routing rag lets Retrieval find nothing and Escalation refuse.
         "query": "Can I expense a chair for working from home?",

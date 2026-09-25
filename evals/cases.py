@@ -52,6 +52,14 @@ ROUTER_CASES: list[tuple[str, str]] = [
     ("Can you look into that issue from yesterday?", "clarify"),
     ("What about the other one?", "clarify"),
     ("Can you check on that thing we discussed?", "clarify"),
+    # The live demo's own questions, so a prompt change can't regress them unseen.
+    # "What triggers an AML escalation review?" went to sql once, via the word AML.
+    ("What triggers an AML escalation review?", "rag"),
+    ("What is the status of the refund backlog?", "rag"),
+    ("How should support handle standard customer refund requests?", "rag"),
+    ("How quickly must support review refund requests?", "rag"),
+    ("What does the AML evidence register contain?", "rag"),
+    ("How many transactions were flagged for AML in August?", "sql"),
     # Compound: dominant intent is the written incident write-up (CLAUDE.md §4).
     ("Summarise the payment outage and tell me how many transactions failed.", "rag"),
 ]
