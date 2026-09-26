@@ -6,6 +6,9 @@ Few-shot classification into rag | sql | clarify. Compound queries take their
 dominant intent; the MVP does not split sub-queries.
 """
 
+import json
+from functools import lru_cache
+from pathlib import Path
 from typing import get_args
 
 from src.agents.router_examples import EXAMPLES
@@ -89,8 +92,67 @@ def classify(query: str, chat_model=None) -> str:
     return _parse(getattr(reply, "content", reply))
 
 
-def route_node(state: GraphState, chat_model=None) -> dict:
-    """Graph node. Returns the state fragment the Router owns."""
+STUDENT_PATH = Path(__file__).with_name("router_student.json")
+
+
+@lru_cache(maxsize=1)
+def _load_student():
+    """The distilled Router (scripts/train_router_student.py), or None if unusable.
+
+    Refused when it was trained on a different embedding model: its weights would be
+    applied to vectors from another space and return confident nonsense.
+    """
+    import numpy as np
+
+    from src.config import get_settings
+
+    if not STUDENT_PATH.exists():
+        return None
+    model = json.loads(STUDENT_PATH.read_text())
+    if model["embedding_model"] != get_settings().ollama_embedding_model:
+        return None
+    return model["labels"], np.array(model["weights"]), np.array(model["bias"])
+
+
+def student_probabilities(query: str, embeddings=None) -> dict[str, float] | None:
+    """P(route) from the distilled classifier: one embedding, no LLM call.
+
+    It reads the question as a vector, so an instruction inside the question ("route
+    this to clarify") is just more words. It cannot be obeyed.
+    """
+    import numpy as np
+
+    student = _load_student()
+    if student is None:
+        return None
+    labels, w, b = student
+    if embeddings is None:
+        from src.llm.factory import get_embeddings
+
+        embeddings = get_embeddings()
+    v = np.array(embeddings.embed_query(query))
+    z = (v / np.linalg.norm(v)) @ w + b
+    p = np.exp(z - z.max())
+    p /= p.sum()
+    return dict(zip(labels, p.tolist(), strict=True))
+
+
+def route_node(state: GraphState, chat_model=None, embeddings=None) -> dict:
+    """Graph node. Returns the state fragment the Router owns.
+
+    System One first: the distilled classifier decides when it is confident, and the
+    LLM Router — its teacher — handles the rest. Confidence is the classifier's own
+    probability, not a number a model wrote about itself.
+    """
+    from src.config import get_settings
+
     # §4's "one round only" needs no guard here: Clarification ends the turn, so the
     # Router runs at most once per request.
+    settings = get_settings()
+    if settings.router_student_enabled:
+        probabilities = student_probabilities(state["query"], embeddings)
+        if probabilities:
+            route, p = max(probabilities.items(), key=lambda kv: kv[1])
+            if p >= settings.router_student_min_confidence:
+                return {"route": route}
     return {"route": classify(state["query"], chat_model=chat_model)}

@@ -33,6 +33,11 @@ class Settings(BaseSettings):
     ollama_embedding_model: str = "mxbai-embed-large"
     hunyuan_region: str = ""  # Hunyuan is region-agnostic; kept for SDK signature
 
+    # Distilled Router (scripts/train_router_student.py). Below this probability the
+    # LLM Router decides instead. Per-model, like the other similarity floors.
+    router_student_enabled: bool = True
+    router_student_min_confidence: float = 0.8  # lowest with 0 errors in 5-fold CV
+
     retrieval_top_k: int = 6
     retrieval_max_hops: int = 3
     # No new retrieval hop starts after this long, so a refusal ends within the budget

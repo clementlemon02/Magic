@@ -1,0 +1,333 @@
+{"query": "Can we claim tips for dining out as part of our business meals?", "route": "rag"}
+{"query": "How do I contact the team that \u201cthey\u201d say will fix this for me?", "route": "clarify"}
+{"query": "Can anyone point me to the part of the handbook that talks about PII handling?", "route": "rag"}
+{"query": "Do we have any standing desks available in the office?", "route": "rag"}
+{"query": "Anyone know how to get a breakdown of monthly transactions in the last 6 months?", "route": "sql"}
+{"query": "What's the difference in transaction volume between Sales and Marketing departments last month?", "route": "sql"}
+{"query": "Are there any specific systems I need to know before starting work?", "route": "rag"}
+{"query": "Hey team, do we have a guideline on when it's okay to share customer data with third parties?", "route": "rag"}
+{"query": "What are the policies on wearing casual wear, like shorts and t-shirts?", "route": "rag"}
+{"query": "Hey, where can I find the latest version of our refund policy in the intranet?", "route": "rag"}
+{"query": "Anyone know if we have a formal process for handling customer complaints that turn into chargebacks?", "route": "rag"}
+{"query": "Hey, quick question \u2013 does KYC apply to new customers only or existing ones too?", "route": "rag"}
+{"query": "I'm not sure what HR paperwork I should bring. Can someone help?", "route": "rag"}
+{"query": "Can you tell me how to find the total amount of refunds and payments combined for R&D this year?", "route": "sql"}
+{"query": "They said there would be more options, but where are they?", "route": "clarify"}
+{"query": "Anyone got tips on setting up a dual boot with Windows 10 and Linux on the company laptop?", "route": "rag"}
+{"query": "Is there a standard process for escalating customer complaints?", "route": "rag"}
+{"query": "Transaction numbers per month in Q1 2023? Anyone have that info?", "route": "sql"}
+{"query": "Can you tell me about the training modules we'll go through?", "route": "rag"}
+{"query": "Could use some help: does anyone know where the PII handling SOP is located?", "route": "rag"}
+{"query": "Quick reminder: are we allowed to store credit card info directly?", "route": "rag"}
+{"query": "Just curious\u2014what\u2019s the process for getting consent from customers for PII?", "route": "rag"}
+{"query": "Hey there, can anyone share the AML flag stats for June-July?", "route": "sql"}
+{"query": "Could someone walk me through finding the total value of all payments for Q2?", "route": "sql"}
+{"query": "Is there an orientation program for new hires? How does it work?", "route": "rag"}
+{"query": "Total value of all transactions for HR \u2013 could someone point me there?", "route": "sql"}
+{"query": "Can I bring my laptop home on weekends for personal use?", "route": "rag"}
+{"query": "Any updates on the latest server glitch?", "route": "clarify"}
+{"query": "Can we see a comparison in transaction volumes between Q1 2023 and Q4 2022?", "route": "sql"}
+{"query": "Are there any mandatory training sessions I need to attend right away?", "route": "rag"}
+{"query": "What are the key steps in conducting a customer due diligence (CDD) check?", "route": "rag"}
+{"query": "Still working on fixing the login issues, right?", "route": "clarify"}
+{"query": "Can someone remind me about the last time we did that \u2018other task\u2019?", "route": "clarify"}
+{"query": "Can anyone explain the difference between a refund and a chargeback?", "route": "rag"}
+{"query": "What are the expectations during the onboarding period?", "route": "rag"}
+{"query": "Is there a specific antivirus we use, and where can I get it?", "route": "rag"}
+{"query": "How do I get the sum of all transactions (payments + refunds) for R&D over the last fiscal quarter?", "route": "sql"}
+{"query": "What's the protocol for escalating issues during non-working hours?", "route": "rag"}
+{"query": "What are the key rules we need to follow for handling customer PII in Aurelia Financial?", "route": "rag"}
+{"query": "Need some info\u2014how often should we review and update our PII handling procedures?", "route": "rag"}
+{"query": "Do we have a procedure in place for reporting breaches of AML policies?", "route": "rag"}
+{"query": "Can someone walk me through the process of submitting a SAR?", "route": "rag"}
+{"query": "Is there a dashboard or report that can show me transaction volumes by department for Q4 2023 compared to Q4 2022?", "route": "sql"}
+{"query": "Can someone give me a tour of the office, please?", "route": "rag"}
+{"query": "What's the process for claiming meals while traveling?", "route": "rag"}
+{"query": "Is it allowed to park in the client parking lot if you're not a client?", "route": "rag"}
+{"query": "How often do we get new coffee in the fridge? Can someone refill it if it's empty?", "route": "rag"}
+{"query": "How do I know if a customer\u2019s risk level has changed?", "route": "rag"}
+{"query": "Got a quick query: is it okay to use customer email addresses for marketing without explicit consent?", "route": "rag"}
+{"query": "What happens if I exceed the daily allowance while traveling?", "route": "rag"}
+{"query": "Hey, how many days of sick leave can I use at once without a doctor\u2019s note?", "route": "rag"}
+{"query": "Quick Q: is there a process in place for getting approval before handling PII?", "route": "rag"}
+{"query": "How do you ensure all stakeholders get updated during and after a payment outage?", "route": "rag"}
+{"query": "Can anyone from outside the company access our financial systems?", "route": "rag"}
+{"query": "Got any tips for setting up a wireless mouse on the company laptop?", "route": "rag"}
+{"query": "Is there a policy on leaving early if there's no client meeting?", "route": "rag"}
+{"query": "Can someone give me an overview of how we handle urgent customer issues?", "route": "rag"}
+{"query": "Why are we having so many tech issues lately, like \"it\"?", "route": "clarify"}
+{"query": "How do I request a new set of headphones from HR?", "route": "rag"}
+{"query": "How do I go about claiming for taxi fares during a business trip?", "route": "rag"}
+{"query": "I saw an email about updating our antivirus software. Where can I find more details on this?", "route": "rag"}
+{"query": "How can we ensure that our employees are trained in info sec best practices?", "route": "rag"}
+{"query": "Can someone give me a quick rundown of the first steps in joining Aurelia Financial?", "route": "rag"}
+{"query": "Any idea where to look for the sum of all transactions (payments + refunds) for Finance over the past year?", "route": "sql"}
+{"query": "I\u2019m stuck on how to handle a chargeback\u2014can someone guide me?", "route": "rag"}
+{"query": "Where can I find the company's policies and procedures manual?", "route": "rag"}
+{"query": "Is there a procedure for reporting lost keys or access cards to IT?", "route": "rag"}
+{"query": "Remember the brainstorm session on reducing operational costs? Do you have any recollection?", "route": "clarify"}
+{"query": "Is there a section of the policy that covers BYOD (Bring Your Own Device) and how it relates to security?", "route": "rag"}
+{"query": "What's the protocol for handling very upset customers?", "route": "rag"}
+{"query": "Anyone know when payroll will process my last paycheck after leaving the company?", "route": "rag"}
+{"query": "Any tips on making sure my expense claims get approved faster?", "route": "rag"}
+{"query": "I accidentally left my laptop at my desk, should I be worried about security?", "route": "rag"}
+{"query": "How do I request access to internal systems and tools?", "route": "rag"}
+{"query": "How do I escalate a high-priority customer issue to the senior team?", "route": "rag"}
+{"query": "How do I go about requesting time off around Christmas and New Year?", "route": "rag"}
+{"query": "What\u2019s the status update on the new client integration?", "route": "clarify"}
+{"query": "Is there a checklist for conducting EDD on high-risk clients?", "route": "rag"}
+{"query": "What are the main components of Aurelia Financial's info sec policy?", "route": "rag"}
+{"query": "Got a quick rundown on what I need to do if there's an API downtime?", "route": "rag"}
+{"query": "Do we need to report every suspicious activity, even if it\u2019s just a hunch?", "route": "rag"}
+{"query": "What\u2019s the process to request annual leave?", "route": "rag"}
+{"query": "Is there a document where we can find all the details about data handling and encryption practices?", "route": "rag"}
+{"query": "Could someone walk me through the steps if we experience a network disruption?", "route": "rag"}
+{"query": "What are the most common reasons for needing to perform a failover?", "route": "rag"}
+{"query": "Who should I contact to set up my desk and equipment?", "route": "rag"}
+{"query": "Any idea where to find the grand total of all payments made by IT in the first half of this year?", "route": "sql"}
+{"query": "Can anyone give me an example of when we'd need to escalate a complaint beyond our department?", "route": "rag"}
+{"query": "Can someone from outside access our network remotely?", "route": "rag"}
+{"query": "Are there any rules about bringing food from home to share with colleagues?", "route": "rag"}
+{"query": "What's the deal with transaction counts for December last year and January this year?", "route": "sql"}
+{"query": "Could you help me with formatting the report for the latest payment issue?", "route": "rag"}
+{"query": "What's the best way to document an issue when it happens?", "route": "rag"}
+{"query": "Hey there, quick question: what\u2019s the deal with PII storage regulations here?", "route": "rag"}
+{"query": "I can't access the server; did I forget something in my setup?", "route": "rag"}
+{"query": "I just realized I didn't add some receipts \u2013 can this be added later?", "route": "rag"}
+{"query": "How do I contact the on-call team if there's an urgent issue?", "route": "rag"}
+{"query": "What's the protocol for booking the meeting rooms when they are fully booked?", "route": "rag"}
+{"query": "Got any tips on how to spot potential money laundering activities?", "route": "rag"}
+{"query": "Do we have any historical records or case studies of previous major outages?", "route": "rag"}
+{"query": "Can someone walk me through how to handle a critical customer complaint?", "route": "rag"}
+{"query": "Any pointers on maintaining a good work-life balance when being on call?", "route": "rag"}
+{"query": "Anyone have the avg trans amount from Q2 2023?", "route": "sql"}
+{"query": "Hey, can anyone tell me how late we're allowed to stay in the office on Fridays?", "route": "rag"}
+{"query": "Is there any orientation on company culture and values that I should prepare for?", "route": "rag"}
+{"query": "Do we have any insights on which month had the highest transaction volume so far in 2023?", "route": "sql"}
+{"query": "They said they fixed it, but why am I still getting error messages?", "route": "clarify"}
+{"query": "How do we handle cybersecurity and data protection in our organization?", "route": "rag"}
+{"query": "Could use some help\u2014what\u2019s the protocol for informing customers about data breaches involving their PII?", "route": "rag"}
+{"query": "Is there a way to get pre-approval for an upcoming trip\u2019s expenses?", "route": "rag"}
+{"query": "How often should I review and update our on-call rotation list?", "route": "rag"}
+{"query": "Got any advice on managing stress when handling an emergency at work?", "route": "rag"}
+{"query": "Did we document the incident properly after the recent downtime?", "route": "rag"}
+{"query": "Can someone walk me through creating an incident write-up for the payment system glitch we had last Friday?", "route": "rag"}
+{"query": "How can I access the total value of all payments and refunds combined for Sales up until now?", "route": "sql"}
+{"query": "How do we track the average transaction value in our system?", "route": "sql"}
+{"query": "How do I find the grand total of all payments and refunds combined for Sales this quarter?", "route": "sql"}
+{"query": "Could someone clarify what needs to be done about that old data set?", "route": "clarify"}
+{"query": "What are the key elements of a good incident write-up when it comes to payments?", "route": "rag"}
+{"query": "What's the process for escalating a customer issue when the initial response doesn't work?", "route": "rag"}
+{"query": "Is it normal to have to call support every time something goes wrong?", "route": "clarify"}
+{"query": "Anyone have a link to the policy guidelines for travel expenses?", "route": "rag"}
+{"query": "Hey, can anyone explain the escalation path if a client is really pissed off?", "route": "rag"}
+{"query": "Do we have a set procedure for escalating client issues when multiple departments are involved?", "route": "rag"}
+{"query": "Do you know who's in charge of the other project?", "route": "clarify"}
+{"query": "Is anyone else experiencing downtime like this?", "route": "clarify"}
+{"query": "Hey team, got any idea on the recent avg trans amount?", "route": "sql"}
+{"query": "Can I take breaks in the outdoor area even when the weather is bad?", "route": "rag"}
+{"query": "Is there a limit to how many personal days I can use in a year?", "route": "rag"}
+{"query": "Anyone got a quick guide for configuring the new laptop with our software tools?", "route": "rag"}
+{"query": "How can I find out the total value of all payments processed this month?", "route": "sql"}
+{"query": "How do we handle escalations that involve multiple clients and departments?", "route": "rag"}
+{"query": "Are there specific guidelines for using the shower facilities after hours?", "route": "rag"}
+{"query": "Are there any rules regarding the use of mobile devices for storing sensitive information?", "route": "rag"}
+{"query": "How do I claim for a flight ticket using the company credit card?", "route": "rag"}
+{"query": "Is there a specific way to document the rationale behind risk assessments?", "route": "rag"}
+{"query": "Do we have guidelines on password strength requirements and complexity?", "route": "rag"}
+{"query": "Is there an IT helpdesk number I can call right away?", "route": "rag"}
+{"query": "Do we have guidelines on using public Wi-Fi for work-related tasks?", "route": "rag"}
+{"query": "Got a quick query: can anyone tell me about our PII handling guidelines?", "route": "rag"}
+{"query": "Anyone know if we can use personal devices for accessing internal systems now?", "route": "rag"}
+{"query": "Can I still submit my claim if I forgot to keep some receipts?", "route": "rag"}
+{"query": "Is there a limit to how much I can claim per day when traveling?", "route": "rag"}
+{"query": "Can someone explain the penalties for non-compliance with AML regulations?", "route": "rag"}
+{"query": "Need some clarity: how do we handle PII during system backups and archiving?", "route": "rag"}
+{"query": "Does everyone need to clock out at 6 PM sharp, or can we extend our working hours?", "route": "rag"}
+{"query": "Hey guys, do we have an ETA for resolving that outage?", "route": "clarify"}
+{"query": "Hey, can someone remind me of the steps if a client is not satisfied after initial support?", "route": "rag"}
+{"query": "Quick Q: what are the steps to ensure compliance with PII storage rules?", "route": "rag"}
+{"query": "How do I make sure my on-call shifts don't overlap with critical meetings?", "route": "rag"}
+{"query": "Can anyone help me find out if our transaction volume was higher in December or January this year?", "route": "sql"}
+{"query": "Can anyone explain the process of rolling back changes that caused issues?", "route": "rag"}
+{"query": "Hey team, anything new on the login bug?", "route": "clarify"}
+{"query": "How do I update customer information according to our compliance procedures?", "route": "rag"}
+{"query": "How can I get a report showing us transaction volumes by department over the past six months?", "route": "sql"}
+{"query": "How do you make sure everyone on the team knows about new payment outages?", "route": "rag"}
+{"query": "Where's the best place to find the historical average transaction values for different periods?", "route": "sql"}
+{"query": "Just wondering\u2014what are the policies on using customer data for research purposes?", "route": "rag"}
+{"query": "Could someone tell me how to get the total amount of refunds processed in HR, maybe with a script or something?", "route": "sql"}
+{"query": "Do we have a runbook for handling payment gateway issues specifically?", "route": "rag"}
+{"query": "Is there a deadline for submitting expense claims?", "route": "rag"}
+{"query": "How do I ensure my team understands the importance of following compliance procedures?", "route": "rag"}
+{"query": "Is there a specific form I need to fill for parental leave?", "route": "rag"}
+{"query": "Is there a specific form or template for initiating a refund?", "route": "rag"}
+{"query": "What's the procedure for claiming internet or data charges while traveling abroad?", "route": "rag"}
+{"query": "How do we keep track of payment system issues in our internal database?", "route": "rag"}
+{"query": "Can I use the conference room for a solo work call?", "route": "rag"}
+{"query": "Is there a central database or tool where all AML-related information is stored?", "route": "rag"}
+{"query": "Can someone tell me about the policy for unpaid leave?", "route": "rag"}
+{"query": "Who handles the bulk of the chargeback issues?", "route": "rag"}
+{"query": "How do I request a new keyboard for my personal computer that\u2019s used for work?", "route": "rag"}
+{"query": "I'm not sure how to escalate issues properly, any tips?", "route": "rag"}
+{"query": "How do I document an escalation request properly in our system?", "route": "rag"}
+{"query": "Could you remind me of the process if I suspect a phishing attempt?", "route": "rag"}
+{"query": "Why is my connection to the corporate network slow? Any troubleshooting steps?", "route": "rag"}
+{"query": "Anyone got tips on how to manage flexible working hours with family commitments?", "route": "rag"}
+{"query": "Hey team, what's the best way to write up an outage like the one on Tuesday?", "route": "rag"}
+{"query": "Can anyone recommend any resources or guides for writing incident reports?", "route": "rag"}
+{"query": "How does the payroll system handle payments during public holidays?", "route": "rag"}
+{"query": "What's up with all these errors on my end?", "route": "clarify"}
+{"query": "Could someone guide me on how to calculate the total value of all payments and refunds for HR over the past 12 months?", "route": "sql"}
+{"query": "How do I go about submitting my claim for maternity leave?", "route": "rag"}
+{"query": "Can you help me figure out when payroll is released every month?", "route": "rag"}
+{"query": "Anyone got any idea where I can find the latest PII handling policies?", "route": "rag"}
+{"query": "Is there a checklist for documenting payment issues we should follow?", "route": "rag"}
+{"query": "Does the company cover public transport costs when traveling on a business trip?", "route": "rag"}
+{"query": "Is there an IT policy guide somewhere?", "route": "rag"}
+{"query": "Could anyone share their experience in writing outages for us?", "route": "rag"}
+{"query": "Hey team, can someone point me to where I can find the AML flag count?", "route": "sql"}
+{"query": "Is there a form or template we use for escalated customer complaints?", "route": "rag"}
+{"query": "What's the process for documenting payment issues like the one on Monday?", "route": "rag"}
+{"query": "Do we have a welcome kit or anything like that?", "route": "rag"}
+{"query": "Any ideas on where to find data comparing transaction volumes between January and February this year?", "route": "sql"}
+{"query": "Is there a template or guide for writing up incident reports after a major outage?", "route": "rag"}
+{"query": "They say there\u2019s a bug in the system, but can you explain more?", "route": "clarify"}
+{"query": "Anyone know if we're allowed to use personal laptops for work now?", "route": "rag"}
+{"query": "How do we ensure compliance with data protection regulations like GDPR?", "route": "rag"}
+{"query": "What's up with all these updates they keep sending me?", "route": "clarify"}
+{"query": "Anyone got a handle on how we should address \u2018that issue\u2019 with the database?", "route": "clarify"}
+{"query": "How do I report my car rental expenses if I was driving my personal car?", "route": "rag"}
+{"query": "Can we use USB drives for transferring sensitive information between systems?", "route": "rag"}
+{"query": "Hey, can anyone help me find out if our transactions went up or down from Jan to Feb?", "route": "sql"}
+{"query": "Can someone walk me through installing the latest security updates on my work laptop?", "route": "rag"}
+{"query": "Still no word on why our dashboard is lagging, right?", "route": "clarify"}
+{"query": "We had some unauthorized access yesterday, what are the first steps to take?", "route": "rag"}
+{"query": "Is there a specific form we need to fill out for high-risk clients?", "route": "rag"}
+{"query": "I think 'the other one' might need an update. Can anyone confirm?", "route": "clarify"}
+{"query": "Is there a way to compare this month's transaction volume with last year at the same time?", "route": "sql"}
+{"query": "Is there an IT FAQ somewhere I can check for common issues?", "route": "rag"}
+{"query": "Is there a way to compare monthly transaction volumes for 2023 with the same months in 2022?", "route": "sql"}
+{"query": "Is it still unresolved that some users can\u2019t log in even after hours of trying?", "route": "clarify"}
+{"query": "Do we get paid on public holidays?", "route": "rag"}
+{"query": "Is it okay to bring my own water bottle to the meeting room?", "route": "rag"}
+{"query": "Does anybody know how long it takes for an expense claim to be approved?", "route": "rag"}
+{"query": "Can someone walk me through a real-life example of a chargeback scenario?", "route": "rag"}
+{"query": "How often should I change my password for secure access?", "route": "rag"}
+{"query": "How do I sync my calendar and contacts between my phone and company laptop?", "route": "rag"}
+{"query": "How should I handle multiple alarms coming in at once?", "route": "rag"}
+{"query": "Is it alright to leave my desk unattended during lunch break?", "route": "rag"}
+{"query": "They told me to wait, but when will someone actually help with this?", "route": "clarify"}
+{"query": "Can I get a summary of our monthly transaction counts since January 2023?", "route": "sql"}
+{"query": "I'm confused about the sick pay policy. Can someone clarify that for me?", "route": "rag"}
+{"query": "How long is the typical onboarding process at Aurelia Financial?", "route": "rag"}
+{"query": "When do I start my onboarding process?", "route": "rag"}
+{"query": "Do we need to keep detailed records for all refund and chargeback cases?", "route": "rag"}
+{"query": "Any chance you could give me a quick overview of how our transaction volumes changed from one month to the next?", "route": "sql"}
+{"query": "Anyone know where we store our latest runbooks and policies?", "route": "rag"}
+{"query": "Got a question about how much we've refunded in Marketing this year. Anybody know?", "route": "sql"}
+{"query": "Can you give me an example of when EDD would be necessary over CDD?", "route": "rag"}
+{"query": "How frequently are security audits conducted in our company?", "route": "rag"}
+{"query": "I seem to have missed submitting my expenses \u2013 is it too late now?", "route": "rag"}
+{"query": "Hey, what\u2019s the deal with storing sensitive information like social security numbers?", "route": "rag"}
+{"query": "What should be done in case of a suspected data breach?", "route": "rag"}
+{"query": "Why does IT always seem so busy? Can someone help?", "route": "clarify"}
+{"query": "Can we use the printer for both work and personal projects?", "route": "rag"}
+{"query": "Can someone remind me of the specific data handling protocols for PII?", "route": "rag"}
+{"query": "Can you explain how the performance evaluation system works for new staff?", "route": "rag"}
+{"query": "Are these issues affecting everyone or just my account?", "route": "clarify"}
+{"query": "Do we have guidelines on how long visitors can stay during meetings?", "route": "rag"}
+{"query": "Got a moment to check the status of that weird error we saw yesterday?", "route": "clarify"}
+{"query": "Is there a way to automate parts of the incident write-up process for payments?", "route": "rag"}
+{"query": "I\u2019m not sure if I filled out the leave request form correctly. Can someone check it over?", "route": "rag"}
+{"query": "I'm trying to figure out which department had the highest transaction volume last quarter. Can anyone point me in the right direction?", "route": "sql"}
+{"query": "Hey, how do we make sure we\u2019re not violating data privacy laws when dealing with customer PII?", "route": "rag"}
+{"query": "Just wondering about the transaction count in September. Anyone know?", "route": "sql"}
+{"query": "Can you explain the exact amount for annual leave payouts?", "route": "rag"}
+{"query": "Can someone explain how to connect to the corporate network using a laptop?", "route": "rag"}
+{"query": "Do we have any specific guidelines on using cloud services for data storage?", "route": "rag"}
+{"query": "How do we request unpaid leave, and is it approved by HR or the manager first?", "route": "rag"}
+{"query": "What are some important things to keep in mind during my first week?", "route": "rag"}
+{"query": "Is there anything specific I should avoid doing until I'm fully onboarded?", "route": "rag"}
+{"query": "Is there any training available on how to prevent future chargebacks?", "route": "rag"}
+{"query": "Transaction count stats from April 2023, anyone have that?", "route": "sql"}
+{"query": "Need help with finding the total amount of payments processed in the Marketing department. Any pointers?", "route": "sql"}
+{"query": "I\u2019m having trouble connecting to our internal network; any quick fixes?", "route": "rag"}
+{"query": "Have there been any significant changes in transaction volumes for Q4 compared to Q3 this year?", "route": "sql"}
+{"query": "What are the rules regarding personal calls on company phones?", "route": "rag"}
+{"query": "Hey, quick question on expense claims \u2013 is it okay to send them via email?", "route": "rag"}
+{"query": "Where can I find resources for training on our financial software?", "route": "rag"}
+{"query": "Any advice on handling unusual transactions that seem suspicious but lack concrete evidence?", "route": "rag"}
+{"query": "Anyone know if we can claim for personal items like toiletries while traveling?", "route": "rag"}
+{"query": "Anyone have info on how to extend my probation period due to medical reasons?", "route": "rag"}
+{"query": "What\u2019s the status of that document review process we\u2019ve been talking about?", "route": "clarify"}
+{"query": "What's the best way to communicate updates to stakeholders during a system failure?", "route": "rag"}
+{"query": "Hey, how many days off can I take this month?", "route": "rag"}
+{"query": "Do you know if they fixed the payment processing delay yet?", "route": "clarify"}
+{"query": "Got any tips on dealing with angry clients who are threatening to leave?", "route": "rag"}
+{"query": "Anyone know if our transaction volume spiked in any specific month this year? If yes, when and why?", "route": "sql"}
+{"query": "Can someone remind me of the main steps in the runbook for a system failure?", "route": "rag"}
+{"query": "Got a query: what are the rules for destroying outdated or no longer needed customer data?", "route": "rag"}
+{"query": "Can anyone help me find out where I can get receipts uploaded?", "route": "rag"}
+{"query": "What\u2019s the best way to set up my home office laptop for remote work?", "route": "rag"}
+{"query": "Where can I find the data showing monthly transaction volumes for 2023 so far?", "route": "sql"}
+{"query": "Could someone share the latest transaction counts with me, please?", "route": "sql"}
+{"query": "Is it mandatory to file a suspicious transaction report if we suspect fraud but no actual transaction occurred?", "route": "rag"}
+{"query": "Does anyone have an update on why the reports aren't generating properly?", "route": "clarify"}
+{"query": "Can someone explain how to use our incident management tool effectively?", "route": "rag"}
+{"query": "How often do we usually process these transaction volumes per month?", "route": "sql"}
+{"query": "Is everything still okay with the system?", "route": "clarify"}
+{"query": "Can we claim for accommodation in a hotel chain that isn\u2019t listed on the policy?", "route": "rag"}
+{"query": "How do I request a password reset if I've lost access to my account?", "route": "rag"}
+{"query": "What's the procedure for handling a database outage during off-hours?", "route": "rag"}
+{"query": "Do I need to re-verify a customer's identity after six months or is it yearly?", "route": "rag"}
+{"query": "Does the kitchen have a microwave for heating up food?", "route": "rag"}
+{"query": "What happens if I forget to submit my timesheet on time? Is there a grace period?", "route": "rag"}
+{"query": "Does anyone have experience connecting to the corporate network outside Singapore?", "route": "rag"}
+{"query": "Do we have to provide proof of illness for taking sick leave?", "route": "rag"}
+{"query": "Can I keep my pet snake at my desk as an office mascot?", "route": "rag"}
+{"query": "How do we ensure that all escalated issues are resolved quickly?", "route": "rag"}
+{"query": "Can anyone tell me if there's been an increase or decrease in transactions from December 2022 to January 2023?", "route": "sql"}
+{"query": "Got any advice on managing high-pressure situations with customers?", "route": "rag"}
+{"query": "Hey, how do we ensure that third-party vendors comply with our PII handling policies?", "route": "rag"}
+{"query": "Is there a specific person I should contact first when something urgent comes up with a customer?", "route": "rag"}
+{"query": "Need to know the sum of all payments made last quarter, any ideas where to look?", "route": "sql"}
+{"query": "Do we have a buddy or mentor assigned to help me get started?", "route": "rag"}
+{"query": "Anyone know if there are any specific rules around encrypting PII in transit?", "route": "rag"}
+{"query": "Is it okay to use personal accounts for work purposes when outside the office?", "route": "rag"}
+{"query": "Are there any upcoming onboarding sessions for new hires like myself?", "route": "rag"}
+{"query": "How do I escalate an issue that involves both technical and customer service teams?", "route": "rag"}
+{"query": "Is there a guideline on how to handle 'that issue'?", "route": "clarify"}
+{"query": "What's the protocol for dealing with data migration issues during non-peak times?", "route": "rag"}
+{"query": "Hey, can someone explain what's meant by \"high-risk customers\" in terms of AML?", "route": "rag"}
+{"query": "Can you recommend any internal documents or videos about the company's services?", "route": "rag"}
+{"query": "Got any templates for documenting our AML procedures?", "route": "rag"}
+{"query": "Can you remind me of the sick leave entitlements again?", "route": "rag"}
+{"query": "When should I escalate a customer issue, and who do I talk to?", "route": "rag"}
+{"query": "Do we have guidelines for escalating customer issues to management or legal teams?", "route": "rag"}
+{"query": "How do I handle situations where a customer refuses to provide required documentation?", "route": "rag"}
+{"query": "Can you remind me what we discussed about that new client last week?", "route": "clarify"}
+{"query": "Can someone provide an update on \u2018the other project\u2019 we\u2019re working on?", "route": "clarify"}
+{"query": "How do we ensure that our incident reports are clear and easy to understand?", "route": "rag"}
+{"query": "Can someone from outside the company access our financial systems? How do I report a security incident?", "route": "rag"}
+{"query": "Anyone know where I can find the latest refund policy document?", "route": "rag"}
+{"query": "How can I get the sum of all transactions (payments + refunds) for Sales last quarter?", "route": "sql"}
+{"query": "Is there any word on the issue with the loan application system?", "route": "clarify"}
+{"query": "Can anyone explain the steps for securing PII when it's transferred between departments?", "route": "rag"}
+{"query": "What's the best way to escalate a complex customer problem that needs attention ASAP?", "route": "rag"}
+{"query": "How do we manage the financial impact of chargebacks in our budget?", "route": "rag"}
+{"query": "What's the protocol when it comes to sharing sensitive information with external parties?", "route": "rag"}
+{"query": "Can someone tell me how to set up two-factor authentication (2FA) on my work laptop?", "route": "rag"}
+{"query": "Do we have any quiet rooms available for focus work?", "route": "rag"}
+{"query": "Anyone have a quick reference for our internal guidelines on PII handling during audits?", "route": "rag"}
+{"query": "Got any update on the email verification process glitch?", "route": "clarify"}
+{"query": "Anyone have the latest figures on our avg trans value?", "route": "sql"}
+{"query": "Can someone explain how to set up an SSH tunnel on my company laptop for remote access?", "route": "rag"}
+{"query": "Anyone know where I can find details about our vacation time?", "route": "rag"}
+{"query": "Is there a way to filter and get the average transaction amounts for specific customers?", "route": "sql"}
+{"query": "Are there any updates to our AML policies that I should know about?", "route": "rag"}
+{"query": "How do I get the latest version of the software on my device?", "route": "rag"}
+{"query": "Who should I contact about this issue?", "route": "clarify"}
+{"query": "Is everyone aware of the update still happening with the API integration?", "route": "clarify"}
+{"query": "How often should we change our passwords according to the info sec policy?", "route": "rag"}
+{"query": "Hey, how often do we need to review and update our AML training program?", "route": "rag"}
