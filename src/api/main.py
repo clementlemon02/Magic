@@ -154,6 +154,7 @@ def initial_state(query: str, user: UserContext) -> GraphState:
         "user": user,
         "route": "rag",
         "hop_count": 0,
+        "started_at": time.monotonic(),
         "retrieved_chunks": [],
         "evidence_exhausted": False,
         "permission_conflicts": [],

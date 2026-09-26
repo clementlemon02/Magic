@@ -35,6 +35,9 @@ class Settings(BaseSettings):
 
     retrieval_top_k: int = 6
     retrieval_max_hops: int = 3
+    # No new retrieval hop starts after this long, so a refusal ends within the budget
+    # plus one hop. Keep budget + slowest hop under REFUSAL_DEADLINE_SECONDS. PER-HARDWARE.
+    retrieval_hop_budget_seconds: float = 2.5
     retrieval_min_score: float = 0.55  # per-model; see .env.example
     verifier_confidence_threshold: float = 0.6
     permission_conflict_score_margin: float = 0.05

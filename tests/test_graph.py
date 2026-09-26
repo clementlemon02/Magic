@@ -213,3 +213,37 @@ def test_a_refusal_outranks_a_pending_clarification():
         },
     ).invoke(_start())
     assert out["final_answer"] == GENERIC_REFUSAL
+
+
+def _ungrounded_loop(**start):
+    hops = []
+
+    def retrieval(s):
+        hops.append(1)
+        return {"hop_count": s.get("hop_count", 0) + 1, "retrieved_chunks": [_chunk(len(hops))]}
+
+    out = _graph(
+        retrieval=retrieval,
+        verifier=lambda s: {
+            "verification": VerificationResult(grounded=False, unsupported=["x"], confidence=0.9)
+        },
+    ).invoke(_start(**start))
+    return hops, out
+
+
+def test_no_new_hop_starts_once_the_time_budget_is_spent():
+    """A refusal must end within budget + one hop, or the padding can't hide it."""
+    import time
+
+    hops, out = _ungrounded_loop(started_at=time.monotonic() - 60)
+    assert len(hops) == 1
+    assert out["escalated"] is True
+    assert out["final_answer"] == GENERIC_REFUSAL
+
+
+def test_hops_continue_while_budget_remains():
+    import time
+
+    hops, out = _ungrounded_loop(started_at=time.monotonic())
+    assert len(hops) == 3  # the fake nodes are instant, so only the hop cap stops it
+    assert out["escalated"] is True
