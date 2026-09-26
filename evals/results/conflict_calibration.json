@@ -1,0 +1,138 @@
+{
+  "min_score": 0.55,
+  "margin": 0.05,
+  "rows": [
+    {
+      "query": "What triggers an AML escalation review?",
+      "should_conflict": true,
+      "conflicts": [
+        "drive:file-aml-evidence",
+        "confluence:COMPLIANCE/aml-escalation",
+        "slack:compliance-alerts/1700000000.000002"
+      ]
+    },
+    {
+      "query": "Which accounts are under Tier 2 review?",
+      "should_conflict": true,
+      "conflicts": [
+        "slack:compliance-alerts/1700000000.000002",
+        "confluence:COMPLIANCE/aml-escalation"
+      ]
+    },
+    {
+      "query": "What is the AML threshold for transfers to high-risk jurisdictions?",
+      "should_conflict": true,
+      "conflicts": [
+        "drive:file-aml-evidence",
+        "confluence:COMPLIANCE/aml-escalation",
+        "slack:compliance-alerts/1700000000.000002",
+        "jira:RISK/AML-24"
+      ]
+    },
+    {
+      "query": "What did the TM-7 lookback find?",
+      "should_conflict": true,
+      "conflicts": []
+    },
+    {
+      "query": "What is in the AML evidence register?",
+      "should_conflict": true,
+      "conflicts": [
+        "drive:file-aml-evidence"
+      ]
+    },
+    {
+      "query": "What is Project Nightingale?",
+      "should_conflict": true,
+      "conflicts": [
+        "confluence:COMPLIANCE/aml-escalation"
+      ]
+    },
+    {
+      "query": "Is account 7731 being investigated?",
+      "should_conflict": true,
+      "conflicts": [
+        "slack:compliance-alerts/1700000000.000002"
+      ]
+    },
+    {
+      "query": "How long do analysts have to file a suspicious transaction report?",
+      "should_conflict": true,
+      "conflicts": [
+        "confluence:COMPLIANCE/aml-escalation"
+      ]
+    },
+    {
+      "query": "Which AML cases are open?",
+      "should_conflict": true,
+      "conflicts": [
+        "drive:file-aml-evidence"
+      ]
+    },
+    {
+      "query": "What is the office wifi password?",
+      "should_conflict": false,
+      "conflicts": []
+    },
+    {
+      "query": "Can fathers take paternity leave?",
+      "should_conflict": false,
+      "conflicts": []
+    },
+    {
+      "query": "What is our parental leave policy?",
+      "should_conflict": false,
+      "conflicts": []
+    },
+    {
+      "query": "How do I get a replacement laptop?",
+      "should_conflict": false,
+      "conflicts": []
+    },
+    {
+      "query": "Do we reimburse gym memberships?",
+      "should_conflict": false,
+      "conflicts": []
+    },
+    {
+      "query": "Is there a dress code for client meetings?",
+      "should_conflict": false,
+      "conflicts": []
+    },
+    {
+      "query": "Which VPN should contractors use?",
+      "should_conflict": false,
+      "conflicts": []
+    },
+    {
+      "query": "What is our position on cryptocurrency custody?",
+      "should_conflict": false,
+      "conflicts": []
+    },
+    {
+      "query": "How many vacation days carry over into next year?",
+      "should_conflict": false,
+      "conflicts": []
+    },
+    {
+      "query": "Who approves overtime for weekend shifts?",
+      "should_conflict": false,
+      "conflicts": []
+    },
+    {
+      "query": "Where do I submit a travel expense claim?",
+      "should_conflict": false,
+      "conflicts": []
+    },
+    {
+      "query": "How long do customers have to contest a chargeback?",
+      "should_conflict": false,
+      "conflicts": []
+    },
+    {
+      "query": "What caused the payment outage?",
+      "should_conflict": false,
+      "conflicts": []
+    }
+  ]
+}

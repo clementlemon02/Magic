@@ -109,3 +109,16 @@ def test_sql_result_is_usable_evidence_on_its_own():
     assert draft == "128 transactions."
     assert citations == []  # a computed figure has no document to cite
     assert "128" in chat.last
+
+
+def test_a_sql_answer_cites_its_query():
+    result = {
+        "template": "count_flagged_aml",
+        "params": {"start": "2026-08-01", "end": "2026-09-01", "dept": "None"},
+        "rows": [{"flagged_count": 5}],
+    }
+    chat = FakeChat("5 transactions were flagged for AML in August 2026.")
+    draft, citations = synthesize("how many flagged?", [], sql_result=result, chat_model=chat)
+    assert draft.startswith("5 transactions")
+    assert [c.source_platform for c in citations] == ["internal"]
+    assert "flagged_count = 5" in chat.last

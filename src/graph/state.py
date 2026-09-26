@@ -73,7 +73,7 @@ class Citation(BaseModel):
     citation can always be re-checked against the live ACL.
     """
 
-    document_id: int
+    document_id: int | None  # None for a transactions query, which is not a document
     title: str
     source_platform: SourcePlatform
     source_ref: str
