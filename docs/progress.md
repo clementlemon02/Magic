@@ -107,10 +107,34 @@ The test suite no longer touches demo data (fixed in #16).
 2. Verifier confidence from token probabilities, and a calibration score (Brier) in
    the evals (issue 3).
 3. Idle re-measurement of the refusal deadline (issue 1).
-4. Optional: Jev (TypeSafe) as a second Router backend if access arrives. Research
-   notes: good fit for routing, poor fit for the Verifier (its documented weaknesses
-   are arithmetic, long irrelevant state and injected instructions), cloud-only in
-   the US. Use `typesafe.ai` / `docs.typesafe.ai` only.
+4. Optional: Jev (TypeSafe) as a second Router backend if access arrives. Good fit for
+   routing, poor fit for the Verifier (its documented weaknesses — arithmetic, long
+   irrelevant state, injected instructions — are exactly our Verifier's failure cases,
+   and it would send document content to a US cloud). Waitlisted. Use `typesafe.ai` /
+   `docs.typesafe.ai` only; `jevapi.org` and `jevtypesafe.org` are lookalikes.
+
+   **`system-one-adapter-python` was evaluated on 26 Sep and rejected for the critical
+   path.** It is TypeSafe's own MIT-licensed shim exposing the Choice/Score/Noul
+   interface over OpenAI/Anthropic/Gemini, and its README states its purpose: comparing
+   TypeSafe against an LLM on cost, speed and intelligence. It is a benchmark harness,
+   not a decision layer. Three reasons it does not fit:
+
+   - Its `probabilities` mode is **self-reported**: `_schema.py` puts one `[0, 1]` float
+     per label in the output JSON schema and the model writes the numbers itself, which
+     is why `normalize_probabilities` exists at all. Identical failure to issue 3, so it
+     does not give us calibrated confidence. That still needs token logprobs.
+   - Every call is an LLM round-trip plus schema validation plus corrective retries. The
+     distilled Router (#21) decides in ~23ms with no LLM, and issue 1 is that refusals
+     are already too slow.
+   - It hard-depends on `typesafe-sdk`, so it is not the interface without the cloud
+     dependency. Local Ollama would work only through `OpenAIProvider(base_url=...)`,
+     which is an escape hatch rather than a supported path, and is untested here.
+
+   It is a well-built library (typed, tach-enforced boundaries, network-blocked tests)
+   and the Choice/Score/Noul framing — a decision, not a generation — is the good idea
+   we already took into #21. Revisit it **only** if Jev access arrives and we want an
+   honest A/B of Jev against qwen2.5 on one interface. That is an `evals/` experiment,
+   never a `src/` dependency.
 
 ## 7. Owner actions outside the code
 
