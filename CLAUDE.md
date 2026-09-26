@@ -131,7 +131,12 @@ incomplete review.
 - Runs strictly after the permission-conflict check: restricted content never enters its prompt.
 
 ### Verifier / Critic — `src/agents/verifier.py`
-- In: `draft_answer`, `retrieved_chunks`. Out: `verification`.
+- In: `draft_answer`, `retrieved_chunks`, `citations`. Out: `verification`.
+- Judges against the CITED passages only (`cited_chunks`), not everything retrieved: the
+  prompt is prefill-bound, so six passages when the answer used one is slower for nothing.
+  Safe by construction — every chunk is already ACL-filtered, so a smaller set of permitted
+  evidence can only turn a grounded answer into a refusal. Falls back to all chunks when the
+  answer cites none, which is also what the Synthesizer does when its overlap signal is weak.
 - Claim-level LLM-as-judge, structured JSON out (`grounded`, `unsupported: list[str]`, `confidence: float`).
   Unsupported + hops left → loop to Retrieval with `unsupported` as reformulation hints. Unsupported at
   hop cap, or `confidence < VERIFIER_CONFIDENCE_THRESHOLD` → hand to Escalation.

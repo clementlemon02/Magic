@@ -153,6 +153,14 @@ VERIFIER_CASES: list[tuple[str, str, list[Chunk], bool]] = [
      "No, refunds above SGD 1,000 need team lead approval.", [APPROVALS], False),
     ("Can I approve a SGD 3,000 refund myself?",
      "Yes, agents can approve refunds up to SGD 5,000.", [APPROVALS], False),
+    # KNOWN FAILURE, found 26 Sep while narrowing the Verifier to cited passages.
+    # This passage is about a backlog being cleared and states no threshold at all,
+    # yet qwen2.5:7b judges the answer grounded against it at confidence 0.924. The
+    # Verifier's other failure refuses a supported answer and is therefore safe; this
+    # one APPROVES an unsupported one, which is the direction that matters.
+    ("Can I approve a SGD 3,000 refund myself?",
+     "No, refunds above SGD 2,000 need team lead approval before they are issued.",
+     [LIVE_REFUND_EVIDENCE[3]], False),
 ]
 
 
