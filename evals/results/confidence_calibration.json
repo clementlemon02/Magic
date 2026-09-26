@@ -1,0 +1,186 @@
+{
+  "rows": [
+    {
+      "question": "How long to contest a chargeback?",
+      "answer": "Customers have 45 days from the transaction date.",
+      "n_passages": 1,
+      "expected": true,
+      "verdict": true,
+      "correct": 1,
+      "self": 1.0,
+      "measured": 0.999999827064233
+    },
+    {
+      "question": "What happens outside the window?",
+      "answer": "Refund requests outside the window need a manager override.",
+      "n_passages": 1,
+      "expected": true,
+      "verdict": true,
+      "correct": 1,
+      "self": 1.0,
+      "measured": 0.9999990731364234
+    },
+    {
+      "question": "What caused the outage?",
+      "answer": "An expired TLS certificate on the settlement gateway.",
+      "n_passages": 1,
+      "expected": true,
+      "verdict": true,
+      "correct": 1,
+      "self": 1.0,
+      "measured": 0.9999999521710329
+    },
+    {
+      "question": "How is PII handled in exports?",
+      "answer": "Customer PII must be masked in all exported reports.",
+      "n_passages": 1,
+      "expected": true,
+      "verdict": true,
+      "correct": 1,
+      "self": 1.0,
+      "measured": 0.9999995860387212
+    },
+    {
+      "question": "Can I approve a SGD 3,000 refund myself?",
+      "answer": "No, refunds above SGD 2,000 need team lead approval before they are issued.",
+      "n_passages": 1,
+      "expected": true,
+      "verdict": true,
+      "correct": 1,
+      "self": 1.0,
+      "measured": 0.9926847188047397
+    },
+    {
+      "question": "Can I approve a SGD 3,000 refund myself?",
+      "answer": "No, refunds above SGD 2,000 need team lead approval before they are issued.",
+      "n_passages": 4,
+      "expected": true,
+      "verdict": false,
+      "correct": 0,
+      "self": 1.0,
+      "measured": 0.7813950855455529
+    },
+    {
+      "question": "Can I approve a SGD 800 refund myself?",
+      "answer": "Yes, refunds up to SGD 2,000 can be approved by the handling agent.",
+      "n_passages": 1,
+      "expected": true,
+      "verdict": true,
+      "correct": 1,
+      "self": 1.0,
+      "measured": 0.9998897562546532
+    },
+    {
+      "question": "How long to contest a chargeback?",
+      "answer": "Customers have 45 days, and refunds are processed within 2 business days.",
+      "n_passages": 1,
+      "expected": false,
+      "verdict": false,
+      "correct": 1,
+      "self": 1.0,
+      "measured": 0.999996924961118
+    },
+    {
+      "question": "What caused the outage?",
+      "answer": "An expired TLS certificate, which affected 12,000 customers.",
+      "n_passages": 1,
+      "expected": false,
+      "verdict": false,
+      "correct": 1,
+      "self": 1.0,
+      "measured": 0.9999994126099776
+    },
+    {
+      "question": "How long to contest a chargeback?",
+      "answer": "Customers have 90 days from the transaction date.",
+      "n_passages": 1,
+      "expected": false,
+      "verdict": false,
+      "correct": 1,
+      "self": 1.0,
+      "measured": 0.9999999789862157
+    },
+    {
+      "question": "How is PII handled?",
+      "answer": "PII is masked in exports and encrypted at rest with AES-256.",
+      "n_passages": 1,
+      "expected": false,
+      "verdict": false,
+      "correct": 1,
+      "self": 0.8,
+      "measured": 0.9972571845628364
+    },
+    {
+      "question": "What follow-up work came out of the outage?",
+      "answer": "ENG-4472 and ENG-4488 were created, and both shipped last week.",
+      "n_passages": 1,
+      "expected": false,
+      "verdict": false,
+      "correct": 1,
+      "self": 1.0,
+      "measured": 0.9125387654747803
+    },
+    {
+      "question": "Can I approve a SGD 1,500 refund myself?",
+      "answer": "No, refunds above SGD 1,000 need team lead approval.",
+      "n_passages": 1,
+      "expected": false,
+      "verdict": false,
+      "correct": 1,
+      "self": 1.0,
+      "measured": 0.9996324498793429
+    },
+    {
+      "question": "Can I approve a SGD 3,000 refund myself?",
+      "answer": "Yes, agents can approve refunds up to SGD 5,000.",
+      "n_passages": 1,
+      "expected": false,
+      "verdict": false,
+      "correct": 1,
+      "self": 1.0,
+      "measured": 0.9999999630774189
+    }
+  ],
+  "sweep": [
+    {
+      "threshold": 0.5,
+      "caught": 0,
+      "needless": 0
+    },
+    {
+      "threshold": 0.6,
+      "caught": 0,
+      "needless": 0
+    },
+    {
+      "threshold": 0.7,
+      "caught": 0,
+      "needless": 0
+    },
+    {
+      "threshold": 0.8,
+      "caught": 1,
+      "needless": 0
+    },
+    {
+      "threshold": 0.85,
+      "caught": 1,
+      "needless": 0
+    },
+    {
+      "threshold": 0.9,
+      "caught": 1,
+      "needless": 0
+    },
+    {
+      "threshold": 0.95,
+      "caught": 1,
+      "needless": 1
+    },
+    {
+      "threshold": 0.99,
+      "caught": 1,
+      "needless": 1
+    }
+  ]
+}
