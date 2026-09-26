@@ -5,9 +5,17 @@ never selects chunk text, so a restricted match cannot reach graph state that
 feeds the Synthesizer.
 """
 
+from datetime import UTC, datetime
 from typing import Any, Protocol
 
-from src.graph.state import Chunk, Citation, GraphState, PermConflict, UserContext
+from src.graph.state import (
+    AuditEvent,
+    Chunk,
+    Citation,
+    GraphState,
+    PermConflict,
+    UserContext,
+)
 
 FILTERED_SEARCH = """
     SELECT
@@ -134,6 +142,34 @@ def retrieve(
     return permitted, conflicts
 
 
+def drop_source_revoked(
+    user: UserContext, chunks: list[Chunk], denies=None
+) -> tuple[list[Chunk], list[dict[str, str]]]:
+    """Drop restricted chunks the SOURCE no longer grants, whatever our mirror says.
+
+    `retrieve()` above enforces the mirror: ACL tags plus a live `permissions` row.
+    Both are only as fresh as the last ingest, so this asks the source itself — see
+    `src/connectors/__init__.py` for the rules and why it fails closed. Internal
+    chunks pass through untouched, so the common path pays no source round-trip.
+
+    Returns the surviving chunks and, for the audit trail, the identity of what was
+    dropped. Identity only: a chunk withheld here must not be copied into the log.
+    """
+    if denies is None:
+        from src.connectors import source_denies as denies
+
+    kept, denied = [], []
+    for chunk in chunks:
+        citation = chunk.citation
+        if denies(user, citation.source_platform, citation.source_ref):
+            denied.append(
+                {"source_platform": citation.source_platform, "source_ref": citation.source_ref}
+            )
+        else:
+            kept.append(chunk)
+    return kept, denied
+
+
 def _psycopg_execute(sql: str, params: dict[str, Any]) -> list[dict[str, Any]]:
     import psycopg
     from psycopg.rows import dict_row
@@ -177,8 +213,23 @@ def retrieval_node(state: GraphState, embeddings=None, execute=None) -> dict:
         min_score=settings.retrieval_min_score,
         conflict_score_margin=settings.permission_conflict_score_margin,
     )
+
+    events = list(state.get("audit_events") or [])
+    if settings.source_recheck_enabled:
+        chunks, denied = drop_source_revoked(state["user"], chunks)
+        if denied:
+            # The mirror said yes and the source said no: the staleness window
+            # closing. It is the most audit-worthy thing this node does, so it goes
+            # on the record under its own event type.
+            events.append(AuditEvent(
+                event_type="source_recheck_denied",
+                payload={"items": denied},
+                occurred_at=datetime.now(UTC),
+            ))
+
     return {
         "retrieved_chunks": chunks,
         "permission_conflicts": conflicts,
         "hop_count": state.get("hop_count", 0) + 1,
+        "audit_events": events,
     }

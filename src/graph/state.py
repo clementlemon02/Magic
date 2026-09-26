@@ -21,6 +21,7 @@ AuditEventType = Literal[
     "draft_answer",
     "verification",
     "permission_conflict",
+    "source_recheck_denied",
     "escalation",
     "final_answer",
     # Outside the graph: a request served from the answer cache, and the
