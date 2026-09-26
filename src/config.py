@@ -41,8 +41,13 @@ class Settings(BaseSettings):
     retrieval_top_k: int = 6
     retrieval_max_hops: int = 3
     # No new retrieval hop starts after this long, so a refusal ends within the budget
-    # plus one hop. Keep budget + slowest hop under REFUSAL_DEADLINE_SECONDS. PER-HARDWARE.
-    retrieval_hop_budget_seconds: float = 2.5
+    # plus one hop. Keep budget + slowest hop under REFUSAL_DEADLINE_SECONDS. PER-HARDWARE:
+    # the slowest single hop measured ~1.9s on an M3 Pro with qwen2.5:7b, so 2.0 puts the
+    # ceiling at ~3.9s, inside the 4.0s deadline. At 2.5 it was 4.34s and 2.9% of refusals
+    # escaped. Swept with evals/refusal_timing.py; 2.5, 2.0 and 1.5 all answered 40/40, so
+    # this cost nothing on THIS corpus — every answer here resolves on its first hop. On a
+    # corpus that needs a second hop to answer, lowering this starts refusing them instead.
+    retrieval_hop_budget_seconds: float = 2.0
     retrieval_min_score: float = 0.55  # per-model; see .env.example
     verifier_confidence_threshold: float = 0.6
     permission_conflict_score_margin: float = 0.05
