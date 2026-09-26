@@ -10,6 +10,7 @@ import pytest
 from src.config import get_settings
 from src.graph.graph import build_graph
 from src.graph.state import (
+    Chunk,
     GENERIC_REFUSAL,
     AuditEvent,
     Citation,
@@ -36,6 +37,11 @@ def _citation() -> Citation:
         source_platform="confluence",
         source_ref="SUPPORT/refund-policy",
     )
+
+
+def _chunk(i: int) -> Chunk:
+    return Chunk(id=i, document_id=i, content=f"passage {i}", acl_tags=["support"], score=0.8,
+                 citation=_citation())
 
 
 def _conflict() -> PermConflict:
@@ -119,7 +125,8 @@ def test_ungrounded_answer_loops_then_stops_at_the_hop_cap():
 
     def counting_retrieval(s):
         hops.append(1)
-        return {"hop_count": s.get("hop_count", 0) + 1}
+        # New evidence every hop, so only the cap can stop the loop.
+        return {"hop_count": s.get("hop_count", 0) + 1, "retrieved_chunks": [_chunk(len(hops))]}
 
     out = _graph(
         retrieval=counting_retrieval,
@@ -131,6 +138,28 @@ def test_ungrounded_answer_loops_then_stops_at_the_hop_cap():
     ).invoke(_start())
 
     assert len(hops) == 3, f"expected RETRIEVAL_MAX_HOPS=3 attempts, got {len(hops)}"
+    assert out["escalated"] is True
+    assert out["final_answer"] == GENERIC_REFUSAL
+
+
+def test_a_retry_that_finds_the_same_evidence_stops_instead_of_redrafting():
+    """Same chunks as the last hop means the same verdict; don't pay for it twice."""
+    hops, drafts = [], []
+
+    def same_every_time(s):
+        hops.append(1)
+        return {"hop_count": s.get("hop_count", 0) + 1, "retrieved_chunks": [_chunk(1)]}
+
+    out = _graph(
+        retrieval=same_every_time,
+        synthesizer=lambda s: (drafts.append(1), {"draft_answer": "x"})[1],
+        verifier=lambda s: {
+            "verification": VerificationResult(grounded=False, unsupported=["x"], confidence=0.9)
+        },
+    ).invoke(_start())
+
+    assert len(hops) == 2  # the repeat is noticed on the first retry
+    assert len(drafts) == 1  # and never drafted or verified again
     assert out["escalated"] is True
     assert out["final_answer"] == GENERIC_REFUSAL
 
@@ -184,3 +213,37 @@ def test_a_refusal_outranks_a_pending_clarification():
         },
     ).invoke(_start())
     assert out["final_answer"] == GENERIC_REFUSAL
+
+
+def _ungrounded_loop(**start):
+    hops = []
+
+    def retrieval(s):
+        hops.append(1)
+        return {"hop_count": s.get("hop_count", 0) + 1, "retrieved_chunks": [_chunk(len(hops))]}
+
+    out = _graph(
+        retrieval=retrieval,
+        verifier=lambda s: {
+            "verification": VerificationResult(grounded=False, unsupported=["x"], confidence=0.9)
+        },
+    ).invoke(_start(**start))
+    return hops, out
+
+
+def test_no_new_hop_starts_once_the_time_budget_is_spent():
+    """A refusal must end within budget + one hop, or the padding can't hide it."""
+    import time
+
+    hops, out = _ungrounded_loop(started_at=time.monotonic() - 60)
+    assert len(hops) == 1
+    assert out["escalated"] is True
+    assert out["final_answer"] == GENERIC_REFUSAL
+
+
+def test_hops_continue_while_budget_remains():
+    import time
+
+    hops, out = _ungrounded_loop(started_at=time.monotonic())
+    assert len(hops) == 3  # the fake nodes are instant, so only the hop cap stops it
+    assert out["escalated"] is True

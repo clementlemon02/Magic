@@ -5,6 +5,7 @@ before the retrieval and audit workstreams land their modules. Each node takes
 `GraphState` and returns the state fragment it owns.
 """
 
+import time
 from collections.abc import Callable
 
 from langgraph.graph import END, START, StateGraph
@@ -57,7 +58,25 @@ def _from_retrieval(state: GraphState) -> str:
     # drafted, so no restricted content ever reaches the Synthesizer's prompt.
     if state.get("permission_conflicts"):
         return "escalation"
+    # A retry that found exactly the evidence the last hop judged insufficient can
+    # only reach the same verdict. Drafting and verifying it again cost two model
+    # calls a hop and pushed these refusals to 10s, past the refusal deadline.
+    if state.get("evidence_exhausted"):
+        return "escalation"
     return "synthesizer"
+
+
+def _noting_repeats(retrieval: Node) -> Node:
+    """Wrap Retrieval to flag a hop that returned the same chunks as the one before."""
+
+    def node(state: GraphState) -> dict:
+        out = retrieval(state)
+        before = {c.id for c in state.get("retrieved_chunks") or []}
+        after = {c.id for c in out.get("retrieved_chunks") or []}
+        out["evidence_exhausted"] = state.get("hop_count", 0) > 0 and after == before
+        return out
+
+    return node
 
 
 def _from_verifier(state: GraphState) -> str:
@@ -72,9 +91,23 @@ def _from_verifier(state: GraphState) -> str:
         return "escalation"
     if verification.grounded:
         return "answer"
-    if state.get("hop_count", 0) < settings.retrieval_max_hops:
+    if state.get("hop_count", 0) < settings.retrieval_max_hops and _budget_left(state):
         return "retrieval"
     return "escalation"
+
+
+def _budget_left(state: GraphState) -> bool:
+    """Whether another hop may START. Bounds how long a refusal can take by construction.
+
+    Refusals are padded to REFUSAL_DEADLINE_SECONDS, but a refusal that runs past the
+    deadline can't be padded back, and its lateness says it was not a permission
+    conflict. With no new hop begun after the budget, a refusal takes at most the
+    budget plus one hop — so the deadline is a guarantee, not a percentile.
+    """
+    started = state.get("started_at")
+    if started is None:
+        return True
+    return time.monotonic() - started < get_settings().retrieval_hop_budget_seconds
 
 
 def build_graph(
@@ -92,7 +125,7 @@ def build_graph(
     g = StateGraph(GraphState)
 
     g.add_node("router", router)
-    g.add_node("retrieval", retrieval)
+    g.add_node("retrieval", _noting_repeats(retrieval))
     g.add_node("sql_tool", sql_tool)
     g.add_node("clarification", clarification)
     g.add_node("synthesizer", synthesizer)

@@ -13,7 +13,7 @@ import json
 import re
 from datetime import date, timedelta
 
-from src.graph.state import GraphState, UserContext
+from src.graph.state import Citation, GraphState, UserContext
 
 # Every template carries `acl_tags && %(acl_tags)s`. A new template without it
 # would read rows the caller may not see, so keep the predicate in the string.
@@ -116,8 +116,10 @@ def _parse_plan(raw: str) -> dict | None:
     except (KeyError, TypeError, ValueError):
         return None
 
-    dept = plan.get("dept")
-    params["dept"] = str(dept) if dept else None
+    # The model writes null as a string often enough to matter ("None", "null"), and
+    # a filter on a department called "None" silently returns zero.
+    dept = str(plan.get("dept") or "").strip()
+    params["dept"] = None if dept.lower() in {"", "none", "null", "all", "any"} else dept
     return {"template": name, "params": params}
 
 
@@ -150,6 +152,48 @@ def run_query(
         "params": {k: str(v) for k, v in plan["params"].items()},
         "rows": rows,
     }
+
+
+def _period(result: dict) -> tuple[str, str, str | None]:
+    p = result["params"]
+    last_day = date.fromisoformat(p["end"]) - timedelta(days=1)
+    dept = p.get("dept")
+    return p["start"], last_day.isoformat(), None if dept in (None, "None") else dept
+
+
+def _is_structured(result) -> bool:
+    return isinstance(result, dict) and result.get("template") in TEMPLATES
+
+
+def describe_result(result) -> str:
+    """A query result as a sentence, for the Synthesizer and the Verifier.
+
+    Handed the raw dict, the model echoed the bare value — the asker saw "5", with
+    no hint of what was counted, over which period, or from where.
+    """
+    if not _is_structured(result):
+        return str(result)
+    start, last_day, dept = _period(result)
+    scope = f"the {dept} department" if dept else "every department the asker may see"
+    values = "; ".join(
+        ", ".join(f"{k} = {v}" for k, v in row.items()) for row in result["rows"]
+    ) or "no matching rows"
+    what = TEMPLATES[result["template"]]["describes"]
+    return f"Transactions query — {what}, from {start} to {last_day} inclusive, over {scope}: {values}."
+
+
+def result_citation(result) -> Citation | None:
+    """Cite the query itself, so a number on screen can be re-run and checked."""
+    if not _is_structured(result):
+        return None
+    start, last_day, dept = _period(result)
+    ref = f"transactions/{result['template']}?start={start}&end={last_day}"
+    return Citation(
+        document_id=None,
+        title=f"Transactions: {TEMPLATES[result['template']]['describes']} ({start} to {last_day})",
+        source_platform="internal",
+        source_ref=ref + (f"&dept={dept}" if dept else ""),
+    )
 
 
 def _psycopg_execute(sql: str, params: dict) -> list[dict]:

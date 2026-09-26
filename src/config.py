@@ -40,6 +40,9 @@ class Settings(BaseSettings):
 
     retrieval_top_k: int = 6
     retrieval_max_hops: int = 3
+    # No new retrieval hop starts after this long, so a refusal ends within the budget
+    # plus one hop. Keep budget + slowest hop under REFUSAL_DEADLINE_SECONDS. PER-HARDWARE.
+    retrieval_hop_budget_seconds: float = 2.5
     retrieval_min_score: float = 0.55  # per-model; see .env.example
     verifier_confidence_threshold: float = 0.6
     permission_conflict_score_margin: float = 0.05
@@ -50,10 +53,21 @@ class Settings(BaseSettings):
     llm_timeout_seconds: int = 30
     db_connect_timeout_seconds: int = 5
 
+    # Constant-time refusal (docs/design/constant-time-refusal.md). Every refusal is
+    # held until this long after the request arrived, so its timing can't reveal
+    # whether it was withheld or simply unanswerable. PER-HARDWARE: 4.0s measured on
+    # an M3 Pro with qwen2.5:7b; re-measure with evals/refusal_timing.py elsewhere.
+    refusal_padding_enabled: bool = True
+    refusal_deadline_seconds: float = 4.0
+
     # Semantic answer cache. The similarity floor is per-model, like
     # retrieval_min_score — re-measure it if the embedding model changes.
     query_cache_enabled: bool = True
     query_cache_similarity: float = 0.93
+
+    # Cosine floor for grouping unanswered questions into one knowledge gap.
+    # Per-model, like retrieval_min_score.
+    knowledge_gap_similarity: float = 0.75
 
     api_host: str = "0.0.0.0"
     api_port: int = 8000

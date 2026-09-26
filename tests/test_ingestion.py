@@ -75,20 +75,23 @@ def test_ingest_connector_writes_documents_and_acl_tagged_chunks():
     connection = FakeConnection()
     embeddings = FakeEmbeddings()
 
-    summary = ingest_connector(
-        ConfluenceConnector(), connection, embeddings, max_chunk_words=20
-    )
+    connector = ConfluenceConnector()
+    summary = ingest_connector(connector, connection, embeddings, max_chunk_words=20)
 
-    assert summary.documents_ingested == 2
-    assert summary.chunks_ingested == 2
+    # Derived from the mock corpus, so editing its content doesn't break this test.
+    items = connector.list_items()
+    expected_chunks = sum(len(chunk_text(i.content, max_words=20)) for i in items)
+    assert expected_chunks > len(items)  # long pages really are split
+    assert summary.documents_ingested == len(items)
+    assert summary.chunks_ingested == expected_chunks
     assert connection.committed
-    assert len(embeddings.requests) == 2
+    assert len(embeddings.requests) == len(items)  # one batched call per document
 
     document_insert = next(params for query, params in connection.calls if "INSERT INTO documents" in query)
     assert document_insert[-1] == ["support", "all-staff"]
 
     chunk_inserts = [params for query, params in connection.calls if "INSERT INTO document_chunks" in query]
-    assert len(chunk_inserts) == 2
+    assert len(chunk_inserts) == expected_chunks
     assert chunk_inserts[0][-1] == ["support", "all-staff"]
 
 

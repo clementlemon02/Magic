@@ -23,6 +23,20 @@ AuditEventType = Literal[
     "permission_conflict",
     "escalation",
     "final_answer",
+    # Outside the graph: a request served from the answer cache, and the
+    # compliance/admin actions, which are as much a part of the trail as a query.
+    "cache_hit",
+    "compliance_inquiry",
+    "permission_revoked",
+    "permission_granted",
+]
+# Why a request was refused. Stored in `escalations.reason` and in the audit trail,
+# never shown to the asker (§5).
+EscalationReason = Literal[
+    "permission_conflict",    # a restricted item outscored everything permitted
+    "insufficient_evidence",  # nothing permitted to draft from
+    "unsupported",            # draft still ungrounded at the hop cap
+    "low_confidence",         # Verifier below VERIFIER_CONFIDENCE_THRESHOLD
 ]
 
 # The exact asker-facing refusal (CLAUDE.md §5). Lives here because Escalation
@@ -45,7 +59,10 @@ class UserContext(BaseModel):
         it — two copies of this would be two chances to disagree about who can see
         what. Callers pass the result as a query parameter; never interpolate it.
         """
-        return [self.role, self.dept]
+        # "all-staff" because every caller is staff: without it, content a source
+        # marks as company-wide (a public Slack channel, an all-staff Drive file)
+        # matched nobody. A live grant in `permissions` is still required on top.
+        return [self.role, self.dept, "all-staff"]
 
 
 class Citation(BaseModel):
@@ -56,7 +73,7 @@ class Citation(BaseModel):
     citation can always be re-checked against the live ACL.
     """
 
-    document_id: int
+    document_id: int | None  # None for a transactions query, which is not a document
     title: str
     source_platform: SourcePlatform
     source_ref: str
@@ -114,7 +131,9 @@ class GraphState(TypedDict):
     user: UserContext
     route: Route
     hop_count: int
+    started_at: float                  # time.monotonic() when the graph began; bounds retries
     retrieved_chunks: list[Chunk]      # ACL-filtered, used for the answer
+    evidence_exhausted: bool           # this hop retrieved the same chunks as the last
     permission_conflicts: list[PermConflict]
     sql_result: Any | None
     draft_answer: str | None
