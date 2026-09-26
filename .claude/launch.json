@@ -4,7 +4,12 @@
     {
       "name": "internal-brain",
       "runtimeExecutable": ".venv/bin/uvicorn",
-      "runtimeArgs": ["src.api.main:app", "--port", "8000"],
+      "runtimeArgs": [
+        "src.api.main:app",
+        "--port",
+        "8000",
+        "--reload"
+      ],
       "port": 8000
     }
   ]

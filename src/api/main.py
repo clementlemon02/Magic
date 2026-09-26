@@ -23,7 +23,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from src.api.compliance import build_router
-from src.api.dashboard import build_router as build_dashboard_router
+from src.api.ui import build_router as build_ui_router
 from src.cache import PermissionAwareCache
 from src.config import get_settings
 from src.graph.graph import build_graph, build_response
@@ -187,7 +187,7 @@ def create_app(
     nodes = nodes or default_nodes()
     graph = build_graph(**nodes)
     app.include_router(build_router(user_loader))
-    app.include_router(build_dashboard_router())
+    app.include_router(build_ui_router())
     settings = get_settings()
     if cache is None and settings.query_cache_enabled:
         cache = PermissionAwareCache(similarity_threshold=settings.query_cache_similarity)

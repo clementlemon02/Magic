@@ -1,6 +1,6 @@
 <!doctype html>
 <meta charset="utf-8">
-<title>Access gaps — Internal Brain</title>
+<title>Gaps — Internal Brain</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
   :root {
@@ -19,6 +19,19 @@
     font: 16px/1.5 ui-sans-serif, -apple-system, "Segoe UI", system-ui, sans-serif;
   }
   .wrap { max-width: 1040px; margin: 0 auto; }
+  nav { display: flex; gap: 6px; margin-bottom: 18px; font-size: 14px; }
+  nav a, nav span {
+    padding: 5px 12px; border-radius: 999px; text-decoration: none;
+    border: 1px solid var(--line); color: var(--muted);
+  }
+  nav span { background: var(--panel); color: var(--ink); border-color: var(--ink); }
+  .tabs { display: flex; gap: 8px; margin-bottom: 8px; }
+  .tabs button {
+    background: transparent; color: var(--muted); border: 1px solid var(--line);
+    font-size: 14px; padding: 6px 14px;
+  }
+  .tabs button.on { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+  .topic { font-size: 17px; font-weight: 600; }
   h1 { font-size: 26px; margin: 0 0 4px; letter-spacing: -0.01em; }
   .sub { color: var(--muted); margin: 0 0 24px; }
   .controls {
@@ -62,10 +75,15 @@
 </style>
 
 <div class="wrap">
-  <h1>Access gaps</h1>
-  <p class="sub">Documents people asked for and could not see. Ranked by how many
-    <em>different</em> people hit the same wall — one person retrying is a bad afternoon,
-    six across four teams is a permission model that does not match the org.</p>
+  <nav><a href="/">Ask</a> <span>Compliance</span></nav>
+  <h1>Gaps</h1>
+  <p class="sub">Two halves of the same question, from the same audit log.</p>
+
+  <div class="tabs" role="tablist">
+    <button id="tab-access" class="on" role="tab">Access gaps</button>
+    <button id="tab-knowledge" role="tab">Knowledge gaps</button>
+  </div>
+  <p class="sub" id="blurb"></p>
 
   <div class="controls">
     <div>
@@ -88,12 +106,26 @@
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) =>
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
-  function render(report) {
-    if (!report.gaps.length) {
-      return `<div class="note">No access gaps in this window.
-        <b>${report.refusals_scanned}</b> refusals scanned — nobody was turned away from a
-        document more than zero times, or nothing has been asked yet.</div>`;
-    }
+  const VIEWS = {
+    access: {
+      path: "/access-gaps",
+      blurb: "The answer <b>exists, behind a wall</b> — so fix the grant. Ranked by how many " +
+             "<em>different</em> people hit it: one person retrying is a bad afternoon, six " +
+             "across four teams is a permission model that does not match the org.",
+      render: renderAccess,
+    },
+    knowledge: {
+      path: "/knowledge-gaps",
+      blurb: "The answer <b>does not exist</b> — so write the page. Refusals for lack of " +
+             "evidence, clustered by meaning. Permission refusals are deliberately excluded: " +
+             "listing those topics would turn this into a map of what restricted material exists.",
+      render: renderKnowledge,
+    },
+  };
+  let view = "access";
+
+  function renderAccess(report) {
+    if (!report.gaps.length) return empty(report, "Nobody was turned away from a document.");
     const rows = report.gaps.map((g) => `
       <tr>
         <td><div class="askers">${g.askers}<small>askers</small></div></td>
@@ -105,20 +137,43 @@
         <td style="font-variant-numeric:tabular-nums">${g.requests}</td>
         <td>${g.example_queries.map((q) => `<p class="q">${esc(q)}</p>`).join("")}</td>
       </tr>`).join("");
-    return `<table>
-      <thead><tr><th>People</th><th>Document</th><th>Requests</th><th>What they asked</th></tr></thead>
-      <tbody>${rows}</tbody></table>
-      <p class="sub" style="margin-top:20px">${report.refusals_scanned} refusals scanned
-        since ${esc(new Date(report.since).toLocaleString())}.</p>`;
+    return table(["People", "Document", "Requests", "What they asked"], rows) + scanned(report);
   }
+
+  function renderKnowledge(report) {
+    if (!report.gaps.length) return empty(report, "Nothing was asked that the corpus could not answer.");
+    const rows = report.gaps.map((g) => `
+      <tr>
+        <td><div class="askers">${g.count}<small>asks</small></div></td>
+        <td><div class="topic">${esc(g.topic)}</div>
+            <span class="tag signal">no document covers this</span></td>
+        <td>${g.example_queries.map((q) => `<p class="q">${esc(q)}</p>`).join("")}</td>
+      </tr>`).join("");
+    return table(["Asks", "Missing topic", "What they asked"], rows) + scanned(report);
+  }
+
+  const table = (headers, rows) =>
+    `<table><thead><tr>${headers.map((h) => `<th>${h}</th>`).join("")}</tr></thead>` +
+    `<tbody>${rows}</tbody></table>`;
+
+  const scanned = (report) =>
+    `<p class="sub" style="margin-top:20px">${report.refusals_scanned} refusals scanned ` +
+    `since ${esc(new Date(report.since).toLocaleString())}.</p>`;
+
+  const empty = (report, why) =>
+    `<div class="note">${why} <b>${report.refusals_scanned}</b> refusals scanned in this window.</div>`;
 
   async function load() {
     const uid = $("uid").value, days = $("days").value;
-    $("out").innerHTML = `<div class="note">Loading…</div>`;
+    const { path, render } = VIEWS[view];
+    // The knowledge scan embeds and clusters, then names each cluster with the model,
+    // so it is seconds rather than milliseconds. Say so instead of looking hung.
+    $("out").innerHTML = `<div class="note">Loading…${
+      view === "knowledge" ? " Clustering refusals and naming each topic takes a few seconds." : ""}</div>`;
     $("who").innerHTML = "";
     let response;
     try {
-      response = await fetch(`/access-gaps?days=${encodeURIComponent(days)}`,
+      response = await fetch(`${path}?days=${encodeURIComponent(days)}`,
         { headers: { "X-User-Id": uid } });
     } catch (error) {
       $("out").innerHTML = `<div class="note bad"><b>Cannot reach the API.</b>
@@ -126,11 +181,11 @@
       return;
     }
     if (response.status === 403) {
-      // Not an error to hide: this IS the product. The report names restricted
-      // documents, so only a compliance officer may read it.
+      // Not an error to hide: this IS the product. Both reports are built from
+      // refusals, so only a compliance officer may read them.
       $("out").innerHTML = `<div class="note bad"><b>User ${esc(uid)} is not a compliance officer.</b>
-        This report names restricted documents and who asked for them, so it is
-        officer-only. Try user 2 (Marcus) or 7 (Hannah).</div>`;
+        These reports are built from what people were refused, and the access-gap half names
+        restricted documents and who wanted them. Try user 2 (Marcus) or 7 (Hannah).</div>`;
       $("who").innerHTML = `<b>403</b><br>refused`;
       return;
     }
@@ -144,9 +199,19 @@
     $("out").innerHTML = render(report);
   }
 
+  function select(next) {
+    view = next;
+    $("blurb").innerHTML = VIEWS[next].blurb;
+    for (const name of Object.keys(VIEWS)) $(`tab-${name}`).classList.toggle("on", name === next);
+    load();
+  }
+
+  for (const name of Object.keys(VIEWS)) {
+    $(`tab-${name}`).addEventListener("click", () => select(name));
+  }
   $("go").addEventListener("click", load);
   for (const id of ["uid", "days"]) {
     $(id).addEventListener("keydown", (e) => { if (e.key === "Enter") load(); });
   }
-  load();
+  select("access");
 </script>
