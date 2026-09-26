@@ -21,14 +21,11 @@ import psycopg
 
 from src.api.main import load_user
 from src.config import get_settings
-from src.connectors.confluence import ConfluenceConnector
-from src.connectors.drive import DriveConnector
-from src.connectors.jira import JiraConnector
-from src.connectors.slack import SlackConnector
+from src.connectors import connectors
 from src.ingestion.service import ingest_connector
 from src.llm.factory import get_embeddings
 
-CONNECTORS = (ConfluenceConnector(), JiraConnector(), SlackConnector(), DriveConnector())
+CONNECTORS = tuple(connectors().values())
 
 
 def _transactions(rng: random.Random):

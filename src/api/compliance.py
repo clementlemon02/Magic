@@ -18,6 +18,7 @@ from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
 
 from src.agents import audit
+from src.agents.access_gap import AccessGapReport, run_access_gap_scan
 from src.agents.knowledge_gap import GapReport, run_knowledge_gap_scan
 from src.graph.state import (
     AuditEvent,
@@ -138,5 +139,12 @@ def build_router(user_loader: Callable, connect: Callable = audit._connect) -> A
     async def knowledge_gaps(days: int = 7, user: UserContext = Depends(officer)):
         since = datetime.now(UTC) - timedelta(days=days)
         return await run_in_threadpool(run_knowledge_gap_scan, since, connect=connect)
+
+    @router.get("/access-gaps", response_model=AccessGapReport)
+    async def access_gaps(days: int = 7, user: UserContext = Depends(officer)):
+        # Officer-gated like the rest of this router, and for a stronger reason: the
+        # report names restricted items and who asked for them. See access_gap.py.
+        since = datetime.now(UTC) - timedelta(days=days)
+        return await run_in_threadpool(run_access_gap_scan, since, connect=connect)
 
     return router

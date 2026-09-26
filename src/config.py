@@ -47,6 +47,12 @@ class Settings(BaseSettings):
     verifier_confidence_threshold: float = 0.6
     permission_conflict_score_margin: float = 0.05
 
+    # Re-ask the source connector whether it still grants access, at query time, for
+    # RESTRICTED documents only (src/connectors/__init__.py). Closes the staleness
+    # window between a revocation in the source and our next ingest. Off puts us back
+    # on the mirror alone, which is where every other mirrored-ACL product sits.
+    source_recheck_enabled: bool = True
+
     # Nothing may hang forever during a live demo. Both defaults are generous enough
     # for a 7B on a laptop and short enough that a wedged dependency surfaces on stage
     # as a clear error rather than a spinner.
