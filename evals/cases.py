@@ -42,15 +42,9 @@ APPROVALS = chunk(5, "confluence", "SUPPORT/refund-approvals",
 
 def _seeded(platform: str, ref: str, doc_id: int) -> Chunk:
     """A chunk carrying a demo connector's real content, as retrieval returns it."""
-    from src.connectors.confluence import ConfluenceConnector
-    from src.connectors.drive import DriveConnector
-    from src.connectors.jira import JiraConnector
-    from src.connectors.slack import SlackConnector
+    from src.connectors import source_item
 
-    connector = {"confluence": ConfluenceConnector, "drive": DriveConnector,
-                 "jira": JiraConnector, "slack": SlackConnector}[platform]()
-    item = next(i for i in connector.list_items() if i.source_ref == ref)
-    return chunk(doc_id, platform, ref, item.content)
+    return chunk(doc_id, platform, ref, source_item(platform, ref).content)
 
 
 # The four chunks retrieval returned live for "Can I approve a SGD 3,000 refund
