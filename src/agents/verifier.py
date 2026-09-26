@@ -9,6 +9,7 @@ grounded to reach the asker.
 """
 
 import json
+import math
 import re
 
 from src.graph.state import Chunk, GraphState, VerificationResult
@@ -54,6 +55,54 @@ _UNREADABLE = VerificationResult(
 )
 
 _FENCE = re.compile(r"^```(?:json)?\s*|\s*```$", re.MULTILINE)
+
+
+_TRUE_FALSE = frozenset({"true", "false"})
+
+
+def _token_text(token: str) -> str:
+    """A completion token reduced to the bare word, so `true` matches ` "true,`."""
+    return token.strip().strip('",:').lower()
+
+
+def _grounded_probability(tokens: list[dict]) -> float | None:
+    """The judge's measured certainty in its own `grounded` verdict, or None.
+
+    `confidence` in the reply is a number the model was ASKED to invent, and models
+    answer it with 1.0 almost regardless — which left
+    VERIFIER_CONFIDENCE_THRESHOLD unable to discriminate. This reads the real thing:
+    the probability the model assigned to the true/false token it actually emitted
+    for "grounded", renormalised over those two so it is P(verdict | one of them)
+    rather than a share of the whole vocabulary.
+
+    Returns None when the decision token or its alternatives are not in the
+    response, so the caller keeps the self-reported value rather than inventing one.
+    """
+    seen = ""
+    for entry in tokens:
+        token = entry.get("token", "")
+        seen += token
+        # The value token can only follow the key, so ignore any earlier true/false.
+        if "grounded" not in seen:
+            continue
+        chosen = _token_text(token)
+        if chosen not in _TRUE_FALSE:
+            continue
+
+        # A verdict has several spellings — ' true', 'true', ' True' are all the same
+        # answer — so their probabilities ADD. Keying a dict on the cleaned word and
+        # assigning would instead keep whichever spelling came last, which is the
+        # least likely one, and invert the result.
+        weights: dict[str, float] = {}
+        for alt in entry.get("top_logprobs") or []:
+            word = _token_text(alt["token"])
+            if word in _TRUE_FALSE:
+                weights[word] = weights.get(word, 0.0) + math.exp(alt["logprob"])
+        # The emitted token is always a candidate, even if top_logprobs omitted it.
+        weights.setdefault(chosen, math.exp(entry["logprob"]))
+        total = sum(weights.values())
+        return weights[chosen] / total if total else None
+    return None
 
 
 def _render_evidence(chunks: list[Chunk], sql_result) -> str:
@@ -114,16 +163,45 @@ def verify(
             grounded=False, unsupported=["no answer was drafted from permitted evidence"], confidence=1.0
         )
 
+    prompt = PROMPT_TEMPLATE.format(
+        evidence=_render_evidence(chunks, sql_result), query=query, answer=draft_answer
+    )
+
+    # An injected chat_model is a caller (or a test) supplying the judge, so it stays
+    # on the plain path. Otherwise prefer the measured one and fall back when the
+    # backend cannot report logprobs.
     if chat_model is None:
+        measured = _verify_measured(prompt)
+        if measured is not None:
+            return measured
+
         from src.llm.factory import get_chat_model
 
         chat_model = get_chat_model()
 
-    prompt = PROMPT_TEMPLATE.format(
-        evidence=_render_evidence(chunks, sql_result), query=query, answer=draft_answer
-    )
     reply = chat_model.invoke(prompt)
     return _parse(getattr(reply, "content", reply))
+
+
+def _verify_measured(prompt: str) -> VerificationResult | None:
+    """The same judgement, with confidence measured from the verdict token.
+
+    None when the backend cannot report logprobs, so `verify` falls back.
+    """
+    from src.llm.factory import chat_with_logprobs
+
+    pair = chat_with_logprobs(prompt)
+    if pair is None:
+        return None
+
+    raw, tokens = pair
+    result = _parse(raw)
+    measured = _grounded_probability(tokens)
+    # Never overwrite a fail-closed zero: an unreadable judgement stays unreadable
+    # however certain the model was about the token it emitted.
+    if measured is None or result is _UNREADABLE:
+        return result
+    return result.model_copy(update={"confidence": measured})
 
 
 def verify_node(state: GraphState, chat_model=None) -> dict:
