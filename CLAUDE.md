@@ -70,6 +70,7 @@ class GraphState(TypedDict):
     route: Literal["rag", "sql", "clarify", "escalate"]
     hop_count: int
     retrieved_chunks: list[Chunk]               # ACL-filtered, used for the answer
+    evidence_exhausted: bool                    # this hop retrieved the same chunks as the last — stop looping
     permission_conflicts: list[PermConflict]    # restricted item ids that scored higher — never their content
     sql_result: Any | None
     draft_answer: str | None

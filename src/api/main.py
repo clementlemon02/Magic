@@ -162,6 +162,7 @@ def initial_state(query: str, user: UserContext) -> GraphState:
         "route": "rag",
         "hop_count": 0,
         "retrieved_chunks": [],
+        "evidence_exhausted": False,
         "permission_conflicts": [],
         "sql_result": None,
         "draft_answer": None,
