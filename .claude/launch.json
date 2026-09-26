@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "internal-brain",
+      "runtimeExecutable": ".venv/bin/uvicorn",
+      "runtimeArgs": ["src.api.main:app", "--port", "8000"],
+      "port": 8000
+    }
+  ]
+}
