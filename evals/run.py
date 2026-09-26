@@ -21,6 +21,7 @@ from evals.cases import (
     REFUND,
     ROUTER_ADVERSARIAL,
     ROUTER_CASES,
+    ROUTER_UNANSWERABLE,
     SQL_DATE_CASES,
     SQL_TEMPLATE_CASES,
     SQL_TODAY,
@@ -54,6 +55,22 @@ def eval_router(chat) -> dict:
         else:
             misses.append(f"      want {expected:<8} got {got:<8} {query[:58]}")
     return {"label": "Router accuracy", "score": _pct(hits, len(ROUTER_CASES)), "notes": misses}
+
+
+def eval_router_unanswerable(chat) -> dict:
+    """Clear questions we may hold nothing on must still route rag, not clarify."""
+    hits, misses = 0, []
+    for query, expected in ROUTER_UNANSWERABLE:
+        got = classify(query, chat_model=chat)
+        if got == expected:
+            hits += 1
+        else:
+            misses.append(f"      want {expected:<8} got {got:<8} {query[:58]}")
+    return {
+        "label": "Router — clear vs vague questions",
+        "score": _pct(hits, len(ROUTER_UNANSWERABLE)),
+        "notes": misses,
+    }
 
 
 def eval_verifier(chat) -> dict:
@@ -161,6 +178,7 @@ def main() -> int:
     rows = []
     for fn in (
         eval_router,
+        eval_router_unanswerable,
         eval_router_adversarial,
         eval_verifier,
         eval_synthesizer,

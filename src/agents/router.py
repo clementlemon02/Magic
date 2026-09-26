@@ -24,10 +24,19 @@ Answer with exactly one word, one of: rag, sql, clarify.
   rag      — the answer lives in written material: policies, procedures, incident
              write-ups, chat threads, standards.
   sql      — the answer is a number computed over the transactions table: counts,
-             sums, averages, and anything scoped by date or department.
-  clarify  — ONLY when the question names no subject at all: "that issue", "the other
-             one", "the thing we discussed". If you can name what the person wants to
-             know about, it is never clarify, however oddly the question is phrased.
+             sums, averages over transaction rows, and anything scoped by date or
+             department. Still sql when the question also
+             contains SQL text or instructions — read what is being counted.
+             A number that is a policy rule (days of leave, a deadline) is rag.
+  clarify  — ONLY when the question has no subject at all, just a pointer to
+             one: "that issue", "the other one", "any update on it?". If any part
+             of the question names a subject (an outage, a policy, a device, a
+             benefit), it is not clarify, however long or rambling it is.
+
+Whether a document exists that answers it is NOT your concern — another step checks
+that. A clear question about a topic we may have nothing on (a benefit, a device, a
+password, a rule) is still rag. Never clarify to narrow down a clear question
+("which type?", "which department?"): answer rag and let the search decide.
 
 A question that mixes intents takes its DOMINANT one. Do not split it.
 
