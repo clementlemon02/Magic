@@ -182,6 +182,63 @@ def describe_result(result) -> str:
     return f"Transactions query — {what}, from {start} to {last_day} inclusive, over {scope}: {values}."
 
 
+def _readable_period(start: str, last_day: str) -> str:
+    """"between 1 and 31 August 2026", collapsing the month and year when shared."""
+    a, b = date.fromisoformat(start), date.fromisoformat(last_day)
+    if (a.year, a.month) == (b.year, b.month):
+        return f"between {a.day} and {b.day} {b:%B %Y}"
+    if a.year == b.year:
+        return f"between {a.day} {a:%B} and {b.day} {b:%B %Y}"
+    return f"between {a.day} {a:%B %Y} and {b.day} {b:%B %Y}"
+
+
+def _amounts(rows: list[dict], key: str) -> str:
+    return " and ".join(f"{row[key]:,} {row.get('currency', '')}".strip() for row in rows)
+
+
+def answer_sentence(result) -> str | None:
+    """The asker-facing answer, rendered from the result row rather than written by
+    a model. None when the result is not one this can render.
+
+    The number here IS the number the database returned, so it cannot be misstated —
+    which is why the graph sends a query-only answer straight past the Verifier. A
+    judge exists to catch invented claims, and there is no way to invent one here.
+    Keep that true: everything below must come from `rows` or `params`, never from
+    the caller's question.
+    """
+    if not _is_structured(result):
+        return None
+    start, last_day, dept = _period(result)
+    when = _readable_period(start, last_day)
+    scope = f" in the {dept} department" if dept else ""
+    rows = result["rows"]
+    template = result["template"]
+
+    if not rows or all(v is None for row in rows for v in row.values()):
+        return f"No transactions matched{scope} {when}."
+    if template == "count_flagged_aml":
+        n = rows[0]["flagged_count"]
+        return f"{n} transaction{'' if n == 1 else 's'}{scope} {'was' if n == 1 else 'were'} flagged for AML {when}."
+    if template == "count_transactions":
+        n = rows[0]["transaction_count"]
+        return f"{n} transaction{'' if n == 1 else 's'}{scope} occurred {when}."
+    if template == "sum_amount":
+        return f"Transactions{scope} {when} totalled {_amounts(rows, 'total_amount')}."
+    if template == "avg_amount":
+        return f"The average transaction{scope} {when} was {_amounts(rows, 'average_amount')}."
+    return None
+
+
+def answers_from_query_alone(chunks, sql_result) -> bool:
+    """Whether this request is answered by the query result and nothing else.
+
+    Both the Synthesizer and the Verifier branch on this, so they must agree: if one
+    renders in code and the other still expects a model-written draft, a deterministic
+    answer would be judged as though it could have been invented.
+    """
+    return not chunks and _is_structured(sql_result)
+
+
 def result_citation(result) -> Citation | None:
     """Cite the query itself, so a number on screen can be re-run and checked."""
     if not _is_structured(result):

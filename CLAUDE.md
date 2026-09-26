@@ -123,15 +123,20 @@ incomplete review.
 ### Synthesizer — `src/agents/synthesizer.py`
 - In: `query`, `retrieved_chunks`, `sql_result`. Out: `draft_answer`, `citations`.
 - Drafts the answer the Verifier judges. Nothing else writes `draft_answer`, and the Verifier
-  takes it as an input — without this node the rag and sql paths both dead-end. Serves both,
-  since a SQL result reaches the Verifier exactly like a retrieved chunk.
+  takes it as an input — without this node the rag path dead-ends. A query-only request is rendered
+  here in code instead (`sql_tool.answer_sentence`), with no model call and nothing to judge.
 - Prompted to answer from the supplied evidence only, and to emit `INSUFFICIENT` rather than
   reach outside it. `INSUFFICIENT` and "no permitted evidence" both yield `draft_answer=None`,
   which the Verifier reports as ungrounded — so the hop loop and Escalation stay the only exits.
 - Runs strictly after the permission-conflict check: restricted content never enters its prompt.
 
 ### Verifier / Critic — `src/agents/verifier.py`
-- In: `draft_answer`, `retrieved_chunks`. Out: `verification`.
+- In: `draft_answer`, `retrieved_chunks`, `citations`. Out: `verification`.
+- Judges against the CITED passages only (`cited_chunks`), not everything retrieved: the
+  prompt is prefill-bound, so six passages when the answer used one is slower for nothing.
+  Safe by construction — every chunk is already ACL-filtered, so a smaller set of permitted
+  evidence can only turn a grounded answer into a refusal. Falls back to all chunks when the
+  answer cites none, which is also what the Synthesizer does when its overlap signal is weak.
 - Claim-level LLM-as-judge, structured JSON out (`grounded`, `unsupported: list[str]`, `confidence: float`).
   Unsupported + hops left → loop to Retrieval with `unsupported` as reformulation hints. Unsupported at
   hop cap, or `confidence < VERIFIER_CONFIDENCE_THRESHOLD` → hand to Escalation.
@@ -152,8 +157,12 @@ incomplete review.
 ### SQL Tool — `src/agents/sql_tool.py`
 - In: `query`, `user`. Out: `sql_result`.
 - Text-to-SQL against read-only, department-scoped views over `transactions`. No arbitrary user-supplied
-  SQL is ever executed — parameterized queries built from a fixed set of templates only. Result is
-  logged and handed to the Verifier exactly like a retrieved chunk.
+  SQL is ever executed — parameterized queries built from a fixed set of templates only. The model picks
+  a template name and parameters; it never writes SQL and never writes the answer.
+- `answer_sentence()` renders the asker-facing answer from the result row. A query-only request
+  (`answers_from_query_alone`) therefore skips BOTH the Synthesizer's model call and the Verifier: the
+  number is the one the database returned, so there is no invented claim for a judge to find. 5.7s → 1.8s.
+  Anything mixing chunks with a query result is drafted and judged as before.
 
 ### Knowledge-Gap — `src/agents/knowledge_gap.py`
 - In: `audit_log` (batch, out of band). Out: a gap report.

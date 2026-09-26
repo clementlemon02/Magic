@@ -12,7 +12,7 @@ import json
 import math
 import re
 
-from src.graph.state import Chunk, GraphState, VerificationResult
+from src.graph.state import Chunk, Citation, GraphState, VerificationResult
 
 PROMPT_TEMPLATE = """You check whether an answer is supported by its evidence.
 
@@ -149,6 +149,28 @@ def _parse(raw: str) -> VerificationResult:
     )
 
 
+def cited_chunks(chunks: list[Chunk], citations: list[Citation]) -> list[Chunk]:
+    """Narrow the evidence to the passages the answer actually drew on.
+
+    Judging a draft against six passages when it used one is both slower and worse:
+    the prompt is prefill-bound, and the Verifier's known false refusal is a
+    threshold answer that passes against one or two passages and fails against four.
+
+    Safe in the only direction that matters. Every retrieved chunk is already
+    ACL-filtered, so this is a strictly SMALLER set of permitted evidence: a claim the
+    narrowed set cannot support is reported unsupported, which refuses. It cannot turn
+    an unsupported answer into a grounded one.
+
+    Falls back to everything when the answer cites nothing, which is also what the
+    Synthesizer does when its overlap signal is too weak to attribute — a weak
+    attribution should widen what the judge sees, not narrow it.
+    """
+    cited = {c.document_id for c in citations}
+    if not cited:
+        return chunks
+    return [c for c in chunks if c.citation.document_id in cited] or chunks
+
+
 def verify(
     query: str,
     draft_answer: str | None,
@@ -204,12 +226,30 @@ def _verify_measured(prompt: str) -> VerificationResult | None:
     return result.model_copy(update={"confidence": measured})
 
 
+# A code-rendered query answer is grounded by construction, so this is a statement
+# of fact rather than a judgement. Confidence 1.0 deliberately: the number came out
+# of the row, and VERIFIER_CONFIDENCE_THRESHOLD must not escalate it.
+_FROM_QUERY = VerificationResult(grounded=True, unsupported=[], confidence=1.0)
+
+
 def verify_node(state: GraphState, chat_model=None) -> dict:
+    from src.agents.sql_tool import answers_from_query_alone
+
+    if state.get("draft_answer") and answers_from_query_alone(
+        state.get("retrieved_chunks") or [], state.get("sql_result")
+    ):
+        # The Synthesizer rendered this from the result row rather than writing it, so
+        # there is no invented claim for a judge to find. Skipping the call is not a
+        # shortcut around §4 — it is the absence of anything to verify.
+        return {"verification": _FROM_QUERY}
+
+    # The Synthesizer wrote `citations` in the same turn, so the passages it drew on
+    # are known here and the judge does not need the rest.
     return {
         "verification": verify(
             state["query"],
             state.get("draft_answer"),
-            state.get("retrieved_chunks") or [],
+            cited_chunks(state.get("retrieved_chunks") or [], state.get("citations") or []),
             sql_result=state.get("sql_result"),
             chat_model=chat_model,
         )
