@@ -145,3 +145,36 @@ def test_a_null_written_as_a_string_is_no_department_filter(written):
         f'"end_inclusive": "2026-08-31", "dept": "{written}"}}'
     )
     assert _parse_plan(raw)["params"]["dept"] is None
+RESULT = {
+    "template": "count_flagged_aml",
+    "params": {"start": "2026-08-01", "end": "2026-09-01", "dept": "None"},
+    "rows": [{"flagged_count": 5}],
+}
+
+
+def test_a_result_is_described_with_what_was_counted_and_the_inclusive_period():
+    from src.agents.sql_tool import describe_result
+
+    text = describe_result(RESULT)
+    assert "flagged for AML" in text
+    assert "2026-08-01 to 2026-08-31 inclusive" in text  # the exclusive end never shows
+    assert "flagged_count = 5" in text
+    assert "None" not in text
+
+
+def test_a_result_cites_the_query_that_produced_it():
+    from src.agents.sql_tool import result_citation
+
+    citation = result_citation({**RESULT, "params": {**RESULT["params"], "dept": "support"}})
+    assert citation.source_platform == "internal"
+    assert citation.document_id is None
+    assert citation.source_ref == (
+        "transactions/count_flagged_aml?start=2026-08-01&end=2026-08-31&dept=support"
+    )
+
+
+def test_an_unstructured_result_is_passed_through_and_not_cited():
+    from src.agents.sql_tool import describe_result, result_citation
+
+    assert describe_result(42) == "42"
+    assert result_citation(42) is None

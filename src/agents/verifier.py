@@ -54,7 +54,9 @@ _FENCE = re.compile(r"^```(?:json)?\s*|\s*```$", re.MULTILINE)
 def _render_evidence(chunks: list[Chunk], sql_result) -> str:
     parts = [f"[{i}] {c.content}" for i, c in enumerate(chunks, start=1)]
     if sql_result is not None:
-        parts.append(f"[query result] {sql_result}")
+        from src.agents.sql_tool import describe_result
+
+        parts.append(f"[query result] {describe_result(sql_result)}")
     return "\n\n".join(parts) if parts else "(none)"
 
 
