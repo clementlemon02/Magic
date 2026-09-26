@@ -213,14 +213,17 @@ def test_scenario_3_never_puts_restricted_content_in_a_prompt():
         assert "aml-escalation" not in prompt.lower()
 
 
-def test_a_restricted_refusal_is_indistinguishable_from_having_no_answer():
-    """The oracle property, and the reason the refusal is deliberately uninformative.
+def test_a_restricted_refusal_has_the_same_bytes_as_having_no_answer():
+    """The content half of the oracle property.
 
     A caller must not be able to tell "there is an answer you may not see" apart from
     "there is no answer". If the two responses differ by so much as a word, asking
     becomes a way to enumerate what restricted material exists — which is how the
     prompt-based baseline in evals/leak_probe.py discloses the corpus on 6 probes out
     of 6 while never quoting a restricted document.
+
+    Identical bytes are necessary, not sufficient: unpadded, the two took measurably
+    different times. The timing half is tests/test_refusal_padding.py.
     """
     chat = FakeChatModel(route="rag", grounded=False, unsupported=["nothing found"], confidence=0.9)
 

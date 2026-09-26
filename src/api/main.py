@@ -9,12 +9,15 @@ walk straight past the §1 filter, since every ACL predicate downstream is built
 from UserContext.
 """
 
+import asyncio
 import logging
+import time
 import uuid
 from collections.abc import Callable
 
 import psycopg
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
@@ -79,8 +82,8 @@ def describe_failure(exc: BaseException) -> tuple[int, str]:
 
     None of these may be the generic refusal. A broken dependency must never be
     reported in the same words as a withheld answer: it would mislead on stage, and it
-    would give that sentence a third meaning, weakening the property that a refusal
-    reveals nothing (§5).
+    would give that sentence a third meaning, weakening the property that a refusal's
+    content reveals nothing (§5). Its timing is handled separately, by hold_refusal.
     """
     if isinstance(exc, NotImplementedError):
         return 501, "That part of the system is not built yet."
@@ -175,13 +178,40 @@ def initial_state(query: str, user: UserContext) -> GraphState:
     }
 
 
-def create_app(nodes: dict | None = None, user_loader=load_user, cache=None) -> FastAPI:
+def create_app(
+    nodes: dict | None = None,
+    user_loader=load_user,
+    cache=None,
+    *,
+    refusal_deadline: float | None = None,
+    clock=time.monotonic,
+    sleeper=asyncio.sleep,
+) -> FastAPI:
+    """Build the app. `clock` and `sleeper` are injectable so padding is testable
+    without sleeping; `refusal_deadline` overrides the configured value, 0 disables it.
+    """
     app = FastAPI(title="Internal Brain")
     graph = build_graph(**(nodes or default_nodes()))
-    if cache is None and get_settings().query_cache_enabled:
-        cache = PermissionAwareCache(
-            similarity_threshold=get_settings().query_cache_similarity
+    settings = get_settings()
+    if cache is None and settings.query_cache_enabled:
+        cache = PermissionAwareCache(similarity_threshold=settings.query_cache_similarity)
+    if refusal_deadline is None:
+        refusal_deadline = (
+            settings.refusal_deadline_seconds if settings.refusal_padding_enabled else 0.0
         )
+
+    async def hold_refusal(started: float) -> None:
+        """Keep a refusal until the deadline, so its timing can't say why it happened.
+
+        A permission conflict short-circuits the graph and a refusal for lack of
+        evidence runs up to three hops, so unpadded they were separable from a single
+        timing measurement (docs/design/constant-time-refusal.md §4). A refusal that is
+        already past the deadline is not delayed further — it leaks in one direction
+        only, and evals/refusal_timing.py reports how often that happens.
+        """
+        remaining = refusal_deadline - (clock() - started)
+        if remaining > 0:
+            await sleeper(remaining)
 
     def resolve_user(request: QueryRequest) -> UserContext:
         user = user_loader(request.user_id)
@@ -214,23 +244,39 @@ def create_app(nodes: dict | None = None, user_loader=load_user, cache=None) -> 
         )
 
     @app.post("/query", response_model=AskerResponse)
-    def query(request: QueryRequest, user: UserContext = Depends(resolve_user)) -> AskerResponse:
+    async def query(request: QueryRequest) -> AskerResponse:
+        # The clock starts before the caller is resolved and before the cache lookup:
+        # both vary and both precede the graph, so starting later would leave them
+        # outside the padded envelope (design doc §6.3).
+        started = clock()
+
+        # Async handler, blocking work on the threadpool: padding then awaits on the
+        # event loop and holds no worker. A sync sleep would hold one of ~40 for the
+        # full deadline, and parallel restricted questions would exhaust the pool.
+        user = await run_in_threadpool(resolve_user, request)
+
         if cache is not None:
-            cached = cache.get(request.query, user)
+            cached = await run_in_threadpool(cache.get, request.query, user)
             if cached is not None:
                 return cached
 
-        state = graph.invoke(initial_state(request.query, user))
+        state = await run_in_threadpool(graph.invoke, initial_state(request.query, user))
         # build_response is the only thing that shapes the reply: it cannot carry
         # `explanation`, so the §5 split holds at the boundary as well as in the graph.
         response = build_response(state)
 
-        # Refusals are never cached. They are the security-critical path, every one
-        # of them owes an `escalations` row (§4), and serving one from memory would
-        # skip the graph that writes it. Answers are cached; a hit still owes an
-        # audit row, which the audit workstream has to emit here — see the PR.
-        if cache is not None and not state.get("escalated"):
-            cache.put(request.query, user, response)
+        if state.get("escalated"):
+            # Refusals are padded and never cached: they are the security-critical
+            # path, and every one owes an `escalations` row (§4) that serving from
+            # memory would skip.
+            await hold_refusal(started)
+            return response
+
+        # Answers are cached, and not padded — answer versus refusal is already
+        # visible in the text. A cache hit still owes an audit row, which the audit
+        # workstream has to emit here.
+        if cache is not None:
+            await run_in_threadpool(cache.put, request.query, user, response)
         return response
 
     return app

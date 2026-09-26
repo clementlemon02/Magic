@@ -1,6 +1,7 @@
 """Can a stopwatch tell *why* the system refused?
 
-    LLM_BACKEND=ollama .venv/bin/python -m evals.refusal_timing
+    LLM_BACKEND=ollama .venv/bin/python -m evals.refusal_timing            # baseline
+    LLM_BACKEND=ollama .venv/bin/python -m evals.refusal_timing --padded   # with padding
 
 Times requests end to end through the real /query endpoint — caller resolution,
 real retrieval against pgvector, real model — and classifies each one by what
@@ -41,6 +42,13 @@ from src.llm.factory import get_chat_model  # noqa: E402
 
 RUNS_PER_QUESTION = 10
 CANDIDATE_DEADLINES = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 8.0]
+
+# A padded refusal lands a few milliseconds past the deadline — the response being
+# serialised after the sleep, measured at 2.5-18ms across two padded runs. A
+# refusal later than this tolerance was never padded: its natural latency exceeded
+# the deadline, which is the one-directional tail leak. The first version of this
+# criterion used no tolerance and reported every padded refusal as escaping.
+ESCAPE_TOLERANCE = 0.05
 
 QUESTIONS = {
     # Expected to hit a restricted match. Classified by outcome, not by this label.
@@ -105,7 +113,9 @@ def main() -> int:
         "escalation": lambda s: {"escalated": True},
         "audit": lambda s: (final_states.append(dict(s)), {"audit_events": []})[1],
     }
-    client = TestClient(create_app(nodes=nodes, user_loader=load_user))
+    padded = "--padded" in sys.argv
+    deadline = settings.refusal_deadline_seconds if padded else 0.0
+    client = TestClient(create_app(nodes=nodes, user_loader=load_user, refusal_deadline=deadline))
 
     for _ in range(2):  # load model weights before anything is timed
         client.post("/query", json={"query": "warm up", "user_id": 1})
@@ -143,7 +153,8 @@ def main() -> int:
     ]
     all_refusals = conflict + others
 
-    print(f"\nbackend {settings.llm_backend} · {settings.ollama_model} · "
+    print(f"\npadding {'ON, deadline ' + str(deadline) + 's' if padded else 'OFF (baseline)'}")
+    print(f"backend {settings.llm_backend} · {settings.ollama_model} · "
           f"{settings.ollama_embedding_model} · {platform.machine()} "
           f"· {len(samples)} requests\n")
     print(f"{'observed path':<34}{'n':>4}{'min':>8}{'p50':>8}{'p95':>8}{'max':>8}")
@@ -160,15 +171,39 @@ def main() -> int:
         print("distributions overlap: "
               + ("no — a single measurement separates them" if gap > 0 else "yes"))
 
-    print(f"\n{'deadline':>9}  {'refusals exceeding it':>22}  {'non-conflict exceeding':>24}")
     curve = []
-    for d in CANDIDATE_DEADLINES:
-        a = sum(t > d for t in all_refusals) / len(all_refusals) if all_refusals else 0
-        o = sum(t > d for t in others) / len(others) if others else 0
-        curve.append({"deadline": d, "all_refusals_exceeding": a, "non_conflict_exceeding": o})
-        print(f"{d:>8.1f}s  {a:>21.1%}  {o:>23.1%}")
+    if padded:
+        # The deadline curve describes NATURAL latency, which padding hides. What
+        # matters now is whether anything is left at the millisecond level.
+        print("\ntime past the deadline, by cause (ms)")
+        for cls in sorted(c for c in by_class if c.startswith("refused")):
+            over = [(t - deadline) * 1000 for t in by_class[cls]]
+            print(f"  {cls:<32} p50 {pct(over, .5):6.2f}  range {min(over):5.2f}-{max(over):5.2f}")
+    else:
+        print(f"\n{'deadline':>9}  {'refusals exceeding it':>22}  {'non-conflict exceeding':>24}")
+        for d in CANDIDATE_DEADLINES:
+            a = sum(t > d for t in all_refusals) / len(all_refusals) if all_refusals else 0
+            o = sum(t > d for t in others) / len(others) if others else 0
+            curve.append({"deadline": d, "all_refusals_exceeding": a, "non_conflict_exceeding": o})
+            print(f"{d:>8.1f}s  {a:>21.1%}  {o:>23.1%}")
 
-    out = Path(__file__).parent / "results" / "refusal_timing_baseline.json"
+    # The success criteria from design doc §12, computed rather than eyeballed.
+    if conflict and others:
+        ratio = pct(conflict, .5) / pct(others, .5)
+        overlap = min(others) <= max(conflict) and min(conflict) <= max(others)
+        exceeding = (
+            sum(t > deadline + ESCAPE_TOLERANCE for t in all_refusals) / len(all_refusals)
+            if padded else None
+        )
+        print("\ncriteria (design doc §12)")
+        print(f"  distributions overlap        {'yes' if overlap else 'no':>8}   target yes")
+        print(f"  median ratio conflict/other  {ratio:>8.3f}   target 0.95-1.05")
+        if exceeding is not None:
+            print(f"  refusals escaping (> +{ESCAPE_TOLERANCE * 1000:.0f}ms)  {exceeding:>6.1%}   target <= 1%")
+        print(f"  distinct refusal texts       {len(refusal_texts):>8}   target 1")
+
+    name = "refusal_timing_padded.json" if padded else "refusal_timing_baseline.json"
+    out = Path(__file__).parent / "results" / name
     commit = subprocess.run(["git", "rev-parse", "--short", "HEAD"],
                             capture_output=True, text=True).stdout.strip()
     out.write_text(json.dumps({
@@ -176,6 +211,8 @@ def main() -> int:
         "machine": platform.machine(),
         "chat_model": settings.ollama_model,
         "embedding_model": settings.ollama_embedding_model,
+        "padded": padded,
+        "deadline": deadline,
         "runs_per_question": RUNS_PER_QUESTION,
         "classes": {c: {"n": len(ts), "min": min(ts), "p50": pct(ts, .5),
                         "p95": pct(ts, .95), "max": max(ts)} for c, ts in by_class.items()},
