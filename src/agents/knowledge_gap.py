@@ -98,6 +98,10 @@ def run_knowledge_gap_scan(
         asked = [queries[i] for i in members]
         prompt = PROMPT_TEMPLATE.format(questions="\n".join(f"- {q}" for q in asked[:10]))
         topic = str(getattr(chat_model.invoke(prompt), "content", "")).strip().strip('"')
-        gaps.append(Gap(topic=topic, count=len(asked), example_queries=asked[:3]))
+        # dict.fromkeys keeps first-seen order: three repeats of one question filled
+        # all three example slots and told the reader nothing, which the dashboard
+        # made obvious. The COUNT still includes every ask.
+        distinct = list(dict.fromkeys(asked))
+        gaps.append(Gap(topic=topic, count=len(asked), example_queries=distinct[:3]))
     gaps.sort(key=lambda g: g.count, reverse=True)
     return GapReport(since=since, refusals_scanned=len(queries), gaps=gaps)

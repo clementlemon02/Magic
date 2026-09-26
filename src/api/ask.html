@@ -1,0 +1,206 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Ask — Internal Brain</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root {
+    --bg: #fbfbfa; --panel: #fff; --line: #e4e2dd; --ink: #1a1917;
+    --muted: #6b6862; --accent: #8a3324; --warn: #9a6b00;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #171614; --panel: #201f1c; --line: #34322d; --ink: #edeae4;
+      --muted: #9a958c; --accent: #e08b7a; --warn: #d9a441;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 32px 16px 64px; background: var(--bg); color: var(--ink);
+    font: 16px/1.5 ui-sans-serif, -apple-system, "Segoe UI", system-ui, sans-serif;
+  }
+  .wrap { max-width: 1040px; margin: 0 auto; }
+  nav { display: flex; gap: 6px; margin-bottom: 18px; font-size: 14px; }
+  nav a, nav span {
+    padding: 5px 12px; border-radius: 999px; text-decoration: none;
+    border: 1px solid var(--line); color: var(--muted);
+  }
+  nav span { background: var(--panel); color: var(--ink); border-color: var(--ink); }
+  .tabs { display: flex; gap: 8px; margin-bottom: 8px; }
+  .tabs button {
+    background: transparent; color: var(--muted); border: 1px solid var(--line);
+    font-size: 14px; padding: 6px 14px;
+  }
+  .tabs button.on { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+  .topic { font-size: 17px; font-weight: 600; }
+  h1 { font-size: 26px; margin: 0 0 4px; letter-spacing: -0.01em; }
+  .sub { color: var(--muted); margin: 0 0 24px; }
+  .controls {
+    display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-end;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    padding: 14px 16px; margin-bottom: 20px;
+  }
+  label { display: block; font-size: 12px; text-transform: uppercase;
+          letter-spacing: .06em; color: var(--muted); margin-bottom: 4px; }
+  input {
+    font: inherit; padding: 6px 10px; width: 92px; color: var(--ink);
+    background: var(--bg); border: 1px solid var(--line); border-radius: 6px;
+  }
+  button {
+    font: inherit; padding: 7px 16px; border-radius: 6px; cursor: pointer;
+    border: 1px solid var(--ink); background: var(--ink); color: var(--bg);
+  }
+  .who { color: var(--muted); font-size: 14px; margin-left: auto; text-align: right; }
+  .who b { color: var(--ink); }
+  table { width: 100%; border-collapse: collapse; }
+  thead th {
+    text-align: left; font-size: 12px; text-transform: uppercase; letter-spacing: .06em;
+    color: var(--muted); font-weight: 600; padding: 0 12px 8px; border-bottom: 1px solid var(--line);
+  }
+  tbody td { padding: 14px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  tbody tr:hover { background: var(--panel); }
+  .askers { font-size: 30px; font-weight: 650; line-height: 1; font-variant-numeric: tabular-nums; }
+  .askers small { display: block; font-size: 11px; font-weight: 400; color: var(--muted);
+                  text-transform: uppercase; letter-spacing: .06em; margin-top: 4px; }
+  .doc { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13.5px; }
+  .platform { color: var(--muted); }
+  .tag { display: inline-block; font-size: 11px; padding: 2px 7px; border-radius: 999px;
+         border: 1px solid currentColor; margin: 3px 4px 0 0; }
+  .restricted { color: var(--accent); }
+  .signal { color: var(--muted); }
+  .q { color: var(--muted); font-size: 13.5px; margin: 2px 0 0; }
+  .note { background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--warn);
+          border-radius: 8px; padding: 14px 16px; color: var(--muted); }
+  .note.bad { border-left-color: var(--accent); }
+  .note b { color: var(--ink); }
+</style>
+<style>
+  textarea {
+    font: inherit; width: 100%; min-height: 76px; padding: 10px 12px; resize: vertical;
+    color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 6px;
+  }
+  .ask { display: block; }
+  .row { display: flex; gap: 16px; align-items: flex-end; margin-top: 12px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 14px 0 0; }
+  .chips button {
+    background: transparent; color: var(--muted); border: 1px solid var(--line);
+    font-size: 13px; padding: 5px 11px; border-radius: 999px; text-align: left;
+  }
+  .chips button:hover { color: var(--ink); border-color: var(--ink); }
+  .answer {
+    background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--ink);
+    border-radius: 8px; padding: 18px 20px; font-size: 17px; line-height: 1.6;
+  }
+  .answer.refused { border-left-color: var(--accent); }
+  .cites { margin-top: 18px; }
+  .cites h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em;
+              color: var(--muted); margin: 0 0 8px; font-weight: 600; }
+  .cite { display: flex; gap: 10px; align-items: baseline; padding: 7px 0;
+          border-top: 1px solid var(--line); }
+  .cite .doc { font-size: 13px; }
+  .cite .title { color: var(--muted); font-size: 14px; }
+</style>
+
+<div class="wrap">
+  <nav><span>Ask</span> <a href="/dashboard">Compliance</a></nav>
+  <h1>Internal Brain</h1>
+  <p class="sub">Ask across Confluence, Jira, Slack and Drive. You only ever see what
+    your own permissions allow — the filter runs in the database, before any of it
+    reaches the model.</p>
+
+  <div class="controls ask">
+    <div>
+      <label for="q">Question</label>
+      <textarea id="q" placeholder="How long do customers have to contest a chargeback?"></textarea>
+    </div>
+    <div class="row">
+      <div>
+        <label for="uid">Asking as (user id)</label>
+        <input id="uid" type="number" min="1" value="1">
+      </div>
+      <button id="go">Ask</button>
+      <div class="who" id="who"></div>
+    </div>
+    <div class="chips" id="chips"></div>
+  </div>
+
+  <div id="out"></div>
+</div>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+  // The demo's own questions. The AML one is the point: ask it as 1, then as 2.
+  const SAMPLES = [
+    [1, "How long do customers have to contest a chargeback?"],
+    [1, "What triggers an AML escalation review?"],
+    [2, "What triggers an AML escalation review?"],
+    [1, "How many transactions were flagged for AML in August?"],
+    [1, "What is our parental leave policy?"],
+  ];
+
+  $("chips").innerHTML = SAMPLES.map(([uid, q], i) =>
+    `<button data-i="${i}">as ${uid} · ${esc(q)}</button>`).join("");
+  $("chips").addEventListener("click", (e) => {
+    const button = e.target.closest("button");
+    if (!button) return;
+    const [uid, q] = SAMPLES[button.dataset.i];
+    $("uid").value = uid;
+    $("q").value = q;
+    ask();
+  });
+
+  function render(reply) {
+    // §5: every refusal is this exact string, whatever the cause. The reason exists,
+    // but it lives in the audit log and only a compliance officer can read it back out.
+    const refused = reply.text.startsWith("I don't have an answer you're permitted");
+    const cites = reply.citations.length ? `
+      <div class="cites"><h3>Sources</h3>${reply.citations.map((c) => `
+        <div class="cite">
+          <span class="doc">${esc(c.source_platform)}:${esc(c.source_ref)}</span>
+          <span class="title">${esc(c.title)}</span>
+        </div>`).join("")}</div>` : "";
+    const note = refused ? `
+      <div class="note" style="margin-top:16px">Every refusal is this same sentence, whether the
+        answer was restricted, unsupported or simply missing — so the wording cannot tell you
+        which. The specific reason <b>was</b> recorded, and only a compliance officer can read
+        it back, via <b>GET /audit/{request_id}</b> or the
+        <a href="/dashboard" style="color:inherit">gaps dashboard</a>.</div>` : "";
+    return `<div class="answer ${refused ? "refused" : ""}">${esc(reply.text)}${cites}</div>${note}`;
+  }
+
+  async function ask() {
+    const uid = Number($("uid").value), query = $("q").value.trim();
+    if (!query) { $("q").focus(); return; }
+    $("out").innerHTML = `<div class="note">Thinking… a refusal is held to a fixed deadline,
+      so it cannot be timed to reveal why it was refused.</div>`;
+    $("who").innerHTML = "";
+    const started = performance.now();
+    let response;
+    try {
+      response = await fetch("/query", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ user_id: uid, query }),
+      });
+    } catch (error) {
+      $("out").innerHTML = `<div class="note bad"><b>Cannot reach the API.</b>
+        Is uvicorn running? ${esc(error.message)}</div>`;
+      return;
+    }
+    const seconds = ((performance.now() - started) / 1000).toFixed(2);
+    if (!response.ok) {
+      const detail = (await response.json().catch(() => ({}))).detail || "";
+      $("out").innerHTML = `<div class="note bad"><b>HTTP ${response.status}</b> ${esc(detail)}</div>`;
+      return;
+    }
+    $("who").innerHTML = `asked as <b>user ${esc(uid)}</b><br>${seconds}s`;
+    $("out").innerHTML = render(await response.json());
+  }
+
+  $("go").addEventListener("click", ask);
+  $("q").addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) ask();
+  });
+</script>
