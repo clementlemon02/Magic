@@ -41,27 +41,32 @@ SUPPORT = UserContext(id=1, role="support", dept="support", clearance_level=0)
 
 @pytest.fixture
 def seeded_transactions():
-    """Two support rows and one compliance-only row, committed then removed."""
+    """Two support rows and one compliance-only row, committed then removed.
+
+    Removes only its own rows, by id. It used to DELETE every transaction, which
+    silently wiped the demo data whenever the suite ran against a seeded database.
+    """
     import psycopg
 
     rows = [
-        ("support", 100.00, False, datetime(2026, 8, 5), ["support"]),
-        ("support", 250.00, True, datetime(2026, 8, 12), ["support"]),
-        ("compliance", 999999.00, True, datetime(2026, 8, 20), ["compliance"]),
+        ("support", 100.00, False, datetime(2031, 8, 5), ["support"]),
+        ("support", 250.00, True, datetime(2031, 8, 12), ["support"]),
+        ("compliance", 999999.00, True, datetime(2031, 8, 20), ["compliance"]),
     ]
     with psycopg.connect(get_settings().database_url) as conn:
-        with conn.cursor() as cur:
-            cur.executemany(
+        ids = [
+            conn.execute(
                 """INSERT INTO transactions
                    (account_dept, amount, flagged_aml, occurred_at, acl_tags)
-                   VALUES (%s, %s, %s, %s, %s)""",
-                rows,
-            )
+                   VALUES (%s, %s, %s, %s, %s) RETURNING id""",
+                row,
+            ).fetchone()[0]
+            for row in rows
+        ]
         conn.commit()
     yield
     with psycopg.connect(get_settings().database_url) as conn:
-        with conn.cursor() as cur:
-            cur.execute("DELETE FROM transactions")
+        conn.execute("DELETE FROM transactions WHERE id = ANY(%s)", (ids,))
         conn.commit()
 
 
@@ -85,8 +90,8 @@ def test_every_template_is_valid_postgres(name, seeded_transactions):
     _psycopg_execute(
         TEMPLATES[name]["sql"],
         {
-            "start": date(2026, 8, 1),
-            "end": date(2026, 9, 1),
+            "start": date(2031, 8, 1),
+            "end": date(2031, 9, 1),
             "dept": None,
             "acl_tags": SUPPORT.acl_tags(),
         },
@@ -100,7 +105,7 @@ def test_acl_predicate_excludes_rows_the_caller_cannot_see(seeded_transactions):
         SUPPORT,
         _psycopg_execute,
         chat_model=FakeChat(
-            '{"template": "count_flagged_aml", "start": "2026-08-01", "end_inclusive": "2026-08-31", "dept": null}'
+            '{"template": "count_flagged_aml", "start": "2031-08-01", "end_inclusive": "2031-08-31", "dept": null}'
         ),
     )
     # Two flagged rows exist in range; only one carries a tag Alex holds.
@@ -119,7 +124,7 @@ def test_a_compliance_caller_sees_the_restricted_row(seeded_transactions):
         marcus,
         _psycopg_execute,
         chat_model=FakeChat(
-            '{"template": "sum_amount", "start": "2026-08-01", "end_inclusive": "2026-08-31", "dept": null}'
+            '{"template": "sum_amount", "start": "2031-08-01", "end_inclusive": "2031-08-31", "dept": null}'
         ),
     )
     total = sum(r["total_amount"] for r in out["rows"])
@@ -134,7 +139,7 @@ def test_sum_amount_excludes_the_restricted_row(seeded_transactions):
         SUPPORT,
         _psycopg_execute,
         chat_model=FakeChat(
-            '{"template": "sum_amount", "start": "2026-08-01", "end_inclusive": "2026-08-31", "dept": null}'
+            '{"template": "sum_amount", "start": "2031-08-01", "end_inclusive": "2031-08-31", "dept": null}'
         ),
     )
     total = sum(r["total_amount"] for r in out["rows"])

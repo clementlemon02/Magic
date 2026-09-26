@@ -132,4 +132,4 @@ def test_identity_used_downstream_is_the_loaded_one_not_the_request():
     )
     client.post("/query", json={"query": "anything", "user_id": 1})
     assert seen["user"].role == "support"
-    assert seen["user"].acl_tags() == ["support", "support"]
+    assert seen["user"].acl_tags() == ["support", "support", "all-staff"]

@@ -80,7 +80,7 @@ def test_retrieve_returns_only_permitted_content():
     assert chunks[0].citation.source_ref == "SUPPORT/refund-policy"
     assert conflicts == []
     assert len(calls) == 2
-    assert calls[0][1]["acl_tags"] == ["support", "support", "user:9"]
+    assert calls[0][1]["acl_tags"] == ["support", "support", "all-staff", "user:9"]
 
 
 def test_higher_ranked_restricted_match_creates_metadata_only_conflict():
