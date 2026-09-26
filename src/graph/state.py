@@ -114,6 +114,7 @@ class GraphState(TypedDict):
     user: UserContext
     route: Route
     hop_count: int
+    started_at: float                  # time.monotonic() when the graph began; bounds retries
     retrieved_chunks: list[Chunk]      # ACL-filtered, used for the answer
     evidence_exhausted: bool           # this hop retrieved the same chunks as the last
     permission_conflicts: list[PermConflict]

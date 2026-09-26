@@ -69,6 +69,7 @@ class GraphState(TypedDict):
     user: UserContext                          # id, role, dept, clearance_level
     route: Literal["rag", "sql", "clarify", "escalate"]
     hop_count: int
+    started_at: float                          # monotonic start time; no new hop after RETRIEVAL_HOP_BUDGET_SECONDS
     retrieved_chunks: list[Chunk]               # ACL-filtered, used for the answer
     evidence_exhausted: bool                    # this hop retrieved the same chunks as the last — stop looping
     permission_conflicts: list[PermConflict]    # restricted item ids that scored higher — never their content

@@ -5,6 +5,7 @@ before the retrieval and audit workstreams land their modules. Each node takes
 `GraphState` and returns the state fragment it owns.
 """
 
+import time
 from collections.abc import Callable
 
 from langgraph.graph import END, START, StateGraph
@@ -90,9 +91,23 @@ def _from_verifier(state: GraphState) -> str:
         return "escalation"
     if verification.grounded:
         return "answer"
-    if state.get("hop_count", 0) < settings.retrieval_max_hops:
+    if state.get("hop_count", 0) < settings.retrieval_max_hops and _budget_left(state):
         return "retrieval"
     return "escalation"
+
+
+def _budget_left(state: GraphState) -> bool:
+    """Whether another hop may START. Bounds how long a refusal can take by construction.
+
+    Refusals are padded to REFUSAL_DEADLINE_SECONDS, but a refusal that runs past the
+    deadline can't be padded back, and its lateness says it was not a permission
+    conflict. With no new hop begun after the budget, a refusal takes at most the
+    budget plus one hop — so the deadline is a guarantee, not a percentile.
+    """
+    started = state.get("started_at")
+    if started is None:
+        return True
+    return time.monotonic() - started < get_settings().retrieval_hop_budget_seconds
 
 
 def build_graph(
