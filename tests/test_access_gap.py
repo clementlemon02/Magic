@@ -22,8 +22,12 @@ from src.graph.state import AuditEvent, UserContext
 
 ALEX = UserContext(id=1, role="support", dept="support", clearance_level=0)
 MARCUS = UserContext(id=2, role="compliance", dept="compliance", clearance_level=1)
-AML = {"source_platform": "confluence", "source_ref": "COMPLIANCE/aml-escalation"}
-LEDGER = {"source_platform": "drive", "source_ref": "file-ledger"}
+# Refs invented for the test. The dev database holds REAL activity (scripts.seed_activity
+# writes genuine refusals and the audit chain is append-only), and the scan reads every
+# row in its window — so a fixture using a real source_ref would be counted together with
+# whatever the corpus already recorded against it.
+AML = {"source_platform": "confluence", "source_ref": "TEST/access-gap-fixture-a"}
+LEDGER = {"source_platform": "drive", "source_ref": "TEST/access-gap-fixture-b"}
 
 
 # --- ranking, with no database ------------------------------------------------
@@ -143,10 +147,12 @@ def test_the_query_unnests_both_json_shapes_and_ranks_them(connect):
 
     report = run_access_gap_scan(datetime.now(UTC) - timedelta(hours=1), connect=connect)
     by_ref = {g.source_ref: g for g in report.gaps}
+    ours = [g.source_ref for g in report.gaps if g.source_ref.startswith("TEST/")]
 
-    assert report.refusals_scanned == 3
-    # The AML page: two different people, so it ranks above the one-asker ledger.
-    assert [g.source_ref for g in report.gaps] == [AML["source_ref"], LEDGER["source_ref"]]
+    # Assert about THIS test's rows only: the window also holds whatever real activity
+    # the dev database has recorded, and counting that would make the test a hostage
+    # to how recently anyone ran scripts.seed_activity.
+    assert ours == [AML["source_ref"], LEDGER["source_ref"]]  # two askers rank above one
     aml = by_ref[AML["source_ref"]]
     assert aml.askers == 2 and aml.requests == 2
     assert aml.sensitivity == "restricted"
@@ -160,4 +166,4 @@ def test_the_query_unnests_both_json_shapes_and_ranks_them(connect):
 def test_refusals_before_the_window_are_not_counted(connect):
     _refusal(connect, ALEX, "old question", _conflict(**AML, sensitivity="restricted"))
     report = run_access_gap_scan(datetime.now(UTC) + timedelta(hours=1), connect=connect)
-    assert report.gaps == []
+    assert report.gaps == []  # nothing at all, real activity included

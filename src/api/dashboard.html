@@ -1,0 +1,217 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Gaps — Internal Brain</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root {
+    --bg: #fbfbfa; --panel: #fff; --line: #e4e2dd; --ink: #1a1917;
+    --muted: #6b6862; --accent: #8a3324; --warn: #9a6b00;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #171614; --panel: #201f1c; --line: #34322d; --ink: #edeae4;
+      --muted: #9a958c; --accent: #e08b7a; --warn: #d9a441;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 32px 16px 64px; background: var(--bg); color: var(--ink);
+    font: 16px/1.5 ui-sans-serif, -apple-system, "Segoe UI", system-ui, sans-serif;
+  }
+  .wrap { max-width: 1040px; margin: 0 auto; }
+  nav { display: flex; gap: 6px; margin-bottom: 18px; font-size: 14px; }
+  nav a, nav span {
+    padding: 5px 12px; border-radius: 999px; text-decoration: none;
+    border: 1px solid var(--line); color: var(--muted);
+  }
+  nav span { background: var(--panel); color: var(--ink); border-color: var(--ink); }
+  .tabs { display: flex; gap: 8px; margin-bottom: 8px; }
+  .tabs button {
+    background: transparent; color: var(--muted); border: 1px solid var(--line);
+    font-size: 14px; padding: 6px 14px;
+  }
+  .tabs button.on { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+  .topic { font-size: 17px; font-weight: 600; }
+  h1 { font-size: 26px; margin: 0 0 4px; letter-spacing: -0.01em; }
+  .sub { color: var(--muted); margin: 0 0 24px; }
+  .controls {
+    display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-end;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    padding: 14px 16px; margin-bottom: 20px;
+  }
+  label { display: block; font-size: 12px; text-transform: uppercase;
+          letter-spacing: .06em; color: var(--muted); margin-bottom: 4px; }
+  input {
+    font: inherit; padding: 6px 10px; width: 92px; color: var(--ink);
+    background: var(--bg); border: 1px solid var(--line); border-radius: 6px;
+  }
+  button {
+    font: inherit; padding: 7px 16px; border-radius: 6px; cursor: pointer;
+    border: 1px solid var(--ink); background: var(--ink); color: var(--bg);
+  }
+  .who { color: var(--muted); font-size: 14px; margin-left: auto; text-align: right; }
+  .who b { color: var(--ink); }
+  table { width: 100%; border-collapse: collapse; }
+  thead th {
+    text-align: left; font-size: 12px; text-transform: uppercase; letter-spacing: .06em;
+    color: var(--muted); font-weight: 600; padding: 0 12px 8px; border-bottom: 1px solid var(--line);
+  }
+  tbody td { padding: 14px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  tbody tr:hover { background: var(--panel); }
+  .askers { font-size: 30px; font-weight: 650; line-height: 1; font-variant-numeric: tabular-nums; }
+  .askers small { display: block; font-size: 11px; font-weight: 400; color: var(--muted);
+                  text-transform: uppercase; letter-spacing: .06em; margin-top: 4px; }
+  .doc { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13.5px; }
+  .platform { color: var(--muted); }
+  .tag { display: inline-block; font-size: 11px; padding: 2px 7px; border-radius: 999px;
+         border: 1px solid currentColor; margin: 3px 4px 0 0; }
+  .restricted { color: var(--accent); }
+  .signal { color: var(--muted); }
+  .q { color: var(--muted); font-size: 13.5px; margin: 2px 0 0; }
+  .note { background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--warn);
+          border-radius: 8px; padding: 14px 16px; color: var(--muted); }
+  .note.bad { border-left-color: var(--accent); }
+  .note b { color: var(--ink); }
+</style>
+
+<div class="wrap">
+  <nav><a href="/">Ask</a> <span>Compliance</span></nav>
+  <h1>Gaps</h1>
+  <p class="sub">Two halves of the same question, from the same audit log.</p>
+
+  <div class="tabs" role="tablist">
+    <button id="tab-access" class="on" role="tab">Access gaps</button>
+    <button id="tab-knowledge" role="tab">Knowledge gaps</button>
+  </div>
+  <p class="sub" id="blurb"></p>
+
+  <div class="controls">
+    <div>
+      <label for="uid">Viewing as (user id)</label>
+      <input id="uid" type="number" min="1" value="2">
+    </div>
+    <div>
+      <label for="days">Days</label>
+      <input id="days" type="number" min="1" value="7">
+    </div>
+    <button id="go">Refresh</button>
+    <div class="who" id="who"></div>
+  </div>
+
+  <div id="out"></div>
+</div>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+  const VIEWS = {
+    access: {
+      path: "/access-gaps",
+      blurb: "The answer <b>exists, behind a wall</b> — so fix the grant. Ranked by how many " +
+             "<em>different</em> people hit it: one person retrying is a bad afternoon, six " +
+             "across four teams is a permission model that does not match the org.",
+      render: renderAccess,
+    },
+    knowledge: {
+      path: "/knowledge-gaps",
+      blurb: "The answer <b>does not exist</b> — so write the page. Refusals for lack of " +
+             "evidence, clustered by meaning. Permission refusals are deliberately excluded: " +
+             "listing those topics would turn this into a map of what restricted material exists.",
+      render: renderKnowledge,
+    },
+  };
+  let view = "access";
+
+  function renderAccess(report) {
+    if (!report.gaps.length) return empty(report, "Nobody was turned away from a document.");
+    const rows = report.gaps.map((g) => `
+      <tr>
+        <td><div class="askers">${g.askers}<small>askers</small></div></td>
+        <td>
+          <div class="doc"><span class="platform">${esc(g.source_platform)}:</span>${esc(g.source_ref)}</div>
+          ${g.sensitivity ? `<span class="tag restricted">${esc(g.sensitivity)}</span>` : ""}
+          ${g.signals.map((s) => `<span class="tag signal">${esc(s)}</span>`).join("")}
+        </td>
+        <td style="font-variant-numeric:tabular-nums">${g.requests}</td>
+        <td>${g.example_queries.map((q) => `<p class="q">${esc(q)}</p>`).join("")}</td>
+      </tr>`).join("");
+    return table(["People", "Document", "Requests", "What they asked"], rows) + scanned(report);
+  }
+
+  function renderKnowledge(report) {
+    if (!report.gaps.length) return empty(report, "Nothing was asked that the corpus could not answer.");
+    const rows = report.gaps.map((g) => `
+      <tr>
+        <td><div class="askers">${g.count}<small>asks</small></div></td>
+        <td><div class="topic">${esc(g.topic)}</div>
+            <span class="tag signal">no document covers this</span></td>
+        <td>${g.example_queries.map((q) => `<p class="q">${esc(q)}</p>`).join("")}</td>
+      </tr>`).join("");
+    return table(["Asks", "Missing topic", "What they asked"], rows) + scanned(report);
+  }
+
+  const table = (headers, rows) =>
+    `<table><thead><tr>${headers.map((h) => `<th>${h}</th>`).join("")}</tr></thead>` +
+    `<tbody>${rows}</tbody></table>`;
+
+  const scanned = (report) =>
+    `<p class="sub" style="margin-top:20px">${report.refusals_scanned} refusals scanned ` +
+    `since ${esc(new Date(report.since).toLocaleString())}.</p>`;
+
+  const empty = (report, why) =>
+    `<div class="note">${why} <b>${report.refusals_scanned}</b> refusals scanned in this window.</div>`;
+
+  async function load() {
+    const uid = $("uid").value, days = $("days").value;
+    const { path, render } = VIEWS[view];
+    // The knowledge scan embeds and clusters, then names each cluster with the model,
+    // so it is seconds rather than milliseconds. Say so instead of looking hung.
+    $("out").innerHTML = `<div class="note">Loading…${
+      view === "knowledge" ? " Clustering refusals and naming each topic takes a few seconds." : ""}</div>`;
+    $("who").innerHTML = "";
+    let response;
+    try {
+      response = await fetch(`${path}?days=${encodeURIComponent(days)}`,
+        { headers: { "X-User-Id": uid } });
+    } catch (error) {
+      $("out").innerHTML = `<div class="note bad"><b>Cannot reach the API.</b>
+        Is uvicorn running? ${esc(error.message)}</div>`;
+      return;
+    }
+    if (response.status === 403) {
+      // Not an error to hide: this IS the product. Both reports are built from
+      // refusals, so only a compliance officer may read them.
+      $("out").innerHTML = `<div class="note bad"><b>User ${esc(uid)} is not a compliance officer.</b>
+        These reports are built from what people were refused, and the access-gap half names
+        restricted documents and who wanted them. Try user 2 (Marcus) or 7 (Hannah).</div>`;
+      $("who").innerHTML = `<b>403</b><br>refused`;
+      return;
+    }
+    if (!response.ok) {
+      $("out").innerHTML = `<div class="note bad"><b>HTTP ${response.status}</b>
+        ${esc((await response.json().catch(() => ({}))).detail || "")}</div>`;
+      return;
+    }
+    const report = await response.json();
+    $("who").innerHTML = `viewing as <b>user ${esc(uid)}</b><br>compliance officer`;
+    $("out").innerHTML = render(report);
+  }
+
+  function select(next) {
+    view = next;
+    $("blurb").innerHTML = VIEWS[next].blurb;
+    for (const name of Object.keys(VIEWS)) $(`tab-${name}`).classList.toggle("on", name === next);
+    load();
+  }
+
+  for (const name of Object.keys(VIEWS)) {
+    $(`tab-${name}`).addEventListener("click", () => select(name));
+  }
+  $("go").addEventListener("click", load);
+  for (const id of ["uid", "days"]) {
+    $(id).addEventListener("keydown", (e) => { if (e.key === "Enter") load(); });
+  }
+  select("access");
+</script>
