@@ -33,6 +33,11 @@ Check every part of a claim separately. A sentence can name a real fact and atta
 invented detail to it — dates, counts, amounts, and status words like "shipped",
 "approved" or "resolved" are unsupported unless the evidence states them.
 
+One narrow exception, and only this one: a bare "yes" or "no" that answers the
+question by applying a threshold the evidence states to a number the question itself
+gives. "No" to "can I approve SGD 3,000?" when the evidence says above SGD 2,000 needs
+approval is supported. Every other part of the answer is still checked as above.
+
 Evidence:
 {evidence}
 

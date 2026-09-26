@@ -34,6 +34,37 @@ OUTAGE = chunk(4, "jira", "ENG-4471",
                "Payment outage ENG-4471 root cause: a expired TLS certificate on the "
                "settlement gateway. Follow-up tickets ENG-4472 and ENG-4488 were created.")
 
+APPROVALS = chunk(5, "confluence", "SUPPORT/refund-approvals",
+                  "Refunds up to SGD 2,000 can be approved by the handling agent; refunds "
+                  "above SGD 2,000 need team lead approval before they are issued.")
+
+
+
+def _seeded(platform: str, ref: str, doc_id: int) -> Chunk:
+    """A chunk carrying a demo connector's real content, as retrieval returns it."""
+    from src.connectors.confluence import ConfluenceConnector
+    from src.connectors.drive import DriveConnector
+    from src.connectors.jira import JiraConnector
+    from src.connectors.slack import SlackConnector
+
+    connector = {"confluence": ConfluenceConnector, "drive": DriveConnector,
+                 "jira": JiraConnector, "slack": SlackConnector}[platform]()
+    item = next(i for i in connector.list_items() if i.source_ref == ref)
+    return chunk(doc_id, platform, ref, item.content)
+
+
+# The four chunks retrieval returned live for "Can I approve a SGD 3,000 refund
+# myself?", in rank order. KNOWN FAILURE on qwen2.5:7b: the answer is near-verbatim
+# from the policy, and the Verifier passes it against any one or two of these, but
+# not all four. Reordering evidence and "check every passage" wording didn't fix it;
+# qwen3:8b judges it correctly at ~17s a call. It fails closed, as a refusal.
+LIVE_REFUND_EVIDENCE = [
+    _seeded("drive", "file-refund-playbook", 11),
+    _seeded("confluence", "SUPPORT/refund-policy", 12),
+    _seeded("jira", "SUPPORT/PLAT-101", 13),
+    _seeded("slack", "support-updates/1700000000.000001", 14),
+]
+
 CORPUS = [REFUND, PII, ONCALL, OUTAGE]
 
 
@@ -67,6 +98,16 @@ VERIFIER_CASES: list[tuple[str, str, list[Chunk], bool]] = [
      "An expired TLS certificate on the settlement gateway.", [OUTAGE], True),
     ("How is PII handled in exports?",
      "Customer PII must be masked in all exported reports.", [PII], True),
+    # A stated rule applied to the question's own values is supported, not inference.
+    # The Verifier rejected the first one live, three hops running, and refused it.
+    ("Can I approve a SGD 3,000 refund myself?",
+     "No, refunds above SGD 2,000 need team lead approval before they are issued.",
+     [APPROVALS], True),
+    ("Can I approve a SGD 3,000 refund myself?",
+     "No, refunds above SGD 2,000 need team lead approval before they are issued.",
+     LIVE_REFUND_EVIDENCE, True),
+    ("Can I approve a SGD 800 refund myself?",
+     "Yes, refunds up to SGD 2,000 can be approved by the handling agent.", [APPROVALS], True),
     # Each of these plants one claim the evidence does not make.
     ("How long to contest a chargeback?",
      "Customers have 45 days, and refunds are processed within 2 business days.", [REFUND], False),
@@ -78,6 +119,11 @@ VERIFIER_CASES: list[tuple[str, str, list[Chunk], bool]] = [
      "PII is masked in exports and encrypted at rest with AES-256.", [PII], False),
     ("What follow-up work came out of the outage?",
      "ENG-4472 and ENG-4488 were created, and both shipped last week.", [OUTAGE], False),
+    # ...but applying it wrongly, or to a threshold the evidence never gives, is not.
+    ("Can I approve a SGD 1,500 refund myself?",
+     "No, refunds above SGD 1,000 need team lead approval.", [APPROVALS], False),
+    ("Can I approve a SGD 3,000 refund myself?",
+     "Yes, agents can approve refunds up to SGD 5,000.", [APPROVALS], False),
 ]
 
 
