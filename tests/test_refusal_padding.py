@@ -15,7 +15,14 @@ import pytest
 from fastapi.testclient import TestClient
 
 from src.api.main import create_app
-from src.graph.state import GENERIC_REFUSAL, PermConflict, UserContext, VerificationResult
+from src.graph.state import (
+    GENERIC_REFUSAL,
+    Chunk,
+    Citation,
+    PermConflict,
+    UserContext,
+    VerificationResult,
+)
 
 ALEX = UserContext(id=1, role="support", dept="support", clearance_level=0)
 DEADLINE = 4.0
@@ -45,10 +52,22 @@ CONFLICT = PermConflict(
 )
 
 
+def _chunk(i: int) -> Chunk:
+    return Chunk(
+        id=i, document_id=i, content=f"passage {i}", acl_tags=["support"], score=0.8,
+        citation=Citation(document_id=i, title="t", source_platform="confluence", source_ref="r"),
+    )
+
+
 def _nodes(clock: FakeClock, **overrides):
     base = {
         "router": lambda s: {"route": "rag"},
-        "retrieval": lambda s: (clock.spend(0.4), {"hop_count": s.get("hop_count", 0) + 1})[1],
+        # A fresh chunk each hop, so an ungrounded answer really runs to the hop cap
+        # rather than stopping early on repeated evidence.
+        "retrieval": lambda s: (clock.spend(0.4), {
+            "hop_count": s.get("hop_count", 0) + 1,
+            "retrieved_chunks": [_chunk(s.get("hop_count", 0) + 1)],
+        })[1],
         "sql_tool": lambda s: {"sql_result": None},
         "clarification": lambda s: {"clarification_question": "Which one?"},
         "synthesizer": lambda s: (clock.spend(0.4), {"draft_answer": "45 days.", "citations": []})[1],
