@@ -123,8 +123,8 @@ incomplete review.
 ### Synthesizer — `src/agents/synthesizer.py`
 - In: `query`, `retrieved_chunks`, `sql_result`. Out: `draft_answer`, `citations`.
 - Drafts the answer the Verifier judges. Nothing else writes `draft_answer`, and the Verifier
-  takes it as an input — without this node the rag and sql paths both dead-end. Serves both,
-  since a SQL result reaches the Verifier exactly like a retrieved chunk.
+  takes it as an input — without this node the rag path dead-ends. A query-only request is rendered
+  here in code instead (`sql_tool.answer_sentence`), with no model call and nothing to judge.
 - Prompted to answer from the supplied evidence only, and to emit `INSUFFICIENT` rather than
   reach outside it. `INSUFFICIENT` and "no permitted evidence" both yield `draft_answer=None`,
   which the Verifier reports as ungrounded — so the hop loop and Escalation stay the only exits.
@@ -157,8 +157,12 @@ incomplete review.
 ### SQL Tool — `src/agents/sql_tool.py`
 - In: `query`, `user`. Out: `sql_result`.
 - Text-to-SQL against read-only, department-scoped views over `transactions`. No arbitrary user-supplied
-  SQL is ever executed — parameterized queries built from a fixed set of templates only. Result is
-  logged and handed to the Verifier exactly like a retrieved chunk.
+  SQL is ever executed — parameterized queries built from a fixed set of templates only. The model picks
+  a template name and parameters; it never writes SQL and never writes the answer.
+- `answer_sentence()` renders the asker-facing answer from the result row. A query-only request
+  (`answers_from_query_alone`) therefore skips BOTH the Synthesizer's model call and the Verifier: the
+  number is the one the database returned, so there is no invented claim for a judge to find. 5.7s → 1.8s.
+  Anything mixing chunks with a query result is drafted and judged as before.
 
 ### Knowledge-Gap — `src/agents/knowledge_gap.py`
 - In: `audit_log` (batch, out of band). Out: a gap report.

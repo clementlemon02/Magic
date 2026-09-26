@@ -226,7 +226,23 @@ def _verify_measured(prompt: str) -> VerificationResult | None:
     return result.model_copy(update={"confidence": measured})
 
 
+# A code-rendered query answer is grounded by construction, so this is a statement
+# of fact rather than a judgement. Confidence 1.0 deliberately: the number came out
+# of the row, and VERIFIER_CONFIDENCE_THRESHOLD must not escalate it.
+_FROM_QUERY = VerificationResult(grounded=True, unsupported=[], confidence=1.0)
+
+
 def verify_node(state: GraphState, chat_model=None) -> dict:
+    from src.agents.sql_tool import answers_from_query_alone
+
+    if state.get("draft_answer") and answers_from_query_alone(
+        state.get("retrieved_chunks") or [], state.get("sql_result")
+    ):
+        # The Synthesizer rendered this from the result row rather than writing it, so
+        # there is no invented claim for a judge to find. Skipping the call is not a
+        # shortcut around §4 — it is the absence of anything to verify.
+        return {"verification": _FROM_QUERY}
+
     # The Synthesizer wrote `citations` in the same turn, so the passages it drew on
     # are known here and the judge does not need the rest.
     return {

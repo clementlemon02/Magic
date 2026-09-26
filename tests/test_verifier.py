@@ -188,3 +188,51 @@ def test_spellings_of_one_verdict_add_up():
     ]
     tokens = [_tok('{"', -0.01), _tok("ground", -0.0), _tok("ed", -0.0), _tok('":', -0.0), verdict]
     assert _grounded_probability(tokens) > 0.99
+
+
+# --- a query answer has nothing to verify --------------------------------------
+
+def test_a_query_only_answer_skips_the_judge(monkeypatch):
+    """The Synthesizer rendered it from the row, so there is no invented claim to find.
+
+    Not a shortcut around §4: the judge exists to catch a model inventing something,
+    and nothing here was written by a model.
+    """
+    from src.agents import verifier
+
+    def fail(*args, **kwargs):
+        raise AssertionError("the verifier must not call a model for a query answer")
+
+    monkeypatch.setattr(verifier, "_verify_measured", fail)
+    out = verifier.verify_node({
+        "query": "how many flagged?",
+        "draft_answer": "3 transactions were flagged for AML between 1 and 31 August 2026.",
+        "retrieved_chunks": [],
+        "sql_result": {"template": "count_flagged_aml",
+                       "params": {"start": "2026-08-01", "end": "2026-09-01", "dept": None},
+                       "rows": [{"flagged_count": 3}]},
+        "citations": [],
+    })
+    result = out["verification"]
+    assert result.grounded is True and result.confidence == 1.0
+    # Confidence 1.0 on purpose: VERIFIER_CONFIDENCE_THRESHOLD must not escalate a
+    # number that came straight out of the database.
+    assert result.unsupported == []
+
+
+def test_a_rag_answer_still_goes_to_the_judge():
+    """The skip is for query-only answers; evidence-backed drafts are judged as before."""
+    from src.agents.verifier import verify_node
+
+    chunk = _chunk()
+    out = verify_node(
+        {
+            "query": "how long to contest?",
+            "draft_answer": "Customers have 45 days.",
+            "retrieved_chunks": [chunk],
+            "sql_result": None,
+            "citations": [chunk.citation],
+        },
+        chat_model=FakeChat('{"grounded": true, "unsupported": [], "confidence": 0.9}'),
+    )
+    assert out["verification"].confidence == 0.9  # the judge's number, not 1.0

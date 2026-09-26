@@ -178,3 +178,74 @@ def test_an_unstructured_result_is_passed_through_and_not_cited():
 
     assert describe_result(42) == "42"
     assert result_citation(42) is None
+
+
+# --- the asker-facing sentence -------------------------------------------------
+# Rendered from the result row rather than written by a model, so the Verifier has
+# nothing to check (see verify_node). These pin the wording and, more importantly,
+# that every number in it comes out of `rows`.
+
+from src.agents.sql_tool import answer_sentence, answers_from_query_alone
+
+
+def _result(template: str, rows: list[dict], start="2026-08-01", end="2026-09-01", dept=None):
+    return {"template": template, "params": {"start": start, "end": end, "dept": dept}, "rows": rows}
+
+
+def test_counts_read_as_sentences():
+    assert answer_sentence(_result("count_flagged_aml", [{"flagged_count": 3}])) == (
+        "3 transactions were flagged for AML between 1 and 31 August 2026."
+    )
+    assert answer_sentence(_result("count_transactions", [{"transaction_count": 77}])) == (
+        "77 transactions occurred between 1 and 31 August 2026."
+    )
+
+
+def test_a_single_result_is_not_pluralised():
+    assert answer_sentence(_result("count_flagged_aml", [{"flagged_count": 1}])) == (
+        "1 transaction was flagged for AML between 1 and 31 August 2026."
+    )
+
+
+def test_amounts_carry_their_currency():
+    assert answer_sentence(
+        _result("sum_amount", [{"total_amount": 612492.05, "currency": "SGD"}])
+    ) == "Transactions between 1 and 31 August 2026 totalled 612,492.05 SGD."
+
+
+def test_a_department_scope_is_stated():
+    assert "in the support department" in answer_sentence(
+        _result("count_transactions", [{"transaction_count": 4}], dept="support")
+    )
+
+
+def test_periods_spanning_months_and_years_read_correctly():
+    assert "between 1 August and 3 September 2026" in answer_sentence(
+        _result("count_transactions", [{"transaction_count": 9}], end="2026-09-04")
+    )
+    assert "between 1 August 2026 and 3 January 2027" in answer_sentence(
+        _result("count_transactions", [{"transaction_count": 9}], end="2027-01-04")
+    )
+
+
+def test_no_rows_says_so_rather_than_reporting_zero_of_something():
+    assert answer_sentence(_result("sum_amount", [])) == (
+        "No transactions matched between 1 and 31 August 2026."
+    )
+    # A grouped aggregate over nothing comes back as a NULL row, not an empty list.
+    assert answer_sentence(_result("avg_amount", [{"average_amount": None, "currency": None}])) == (
+        "No transactions matched between 1 and 31 August 2026."
+    )
+
+
+def test_an_unrenderable_result_gets_no_sentence():
+    assert answer_sentence(None) is None
+    assert answer_sentence({"template": "not_a_template", "params": {}, "rows": []}) is None
+
+
+def test_the_deterministic_path_needs_a_query_and_no_chunks():
+    """Both the Synthesizer and the Verifier branch on this, so it has to be exact."""
+    result = _result("count_flagged_aml", [{"flagged_count": 3}])
+    assert answers_from_query_alone([], result) is True
+    assert answers_from_query_alone([], None) is False
+    assert answers_from_query_alone(["a chunk"], result) is False

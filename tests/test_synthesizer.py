@@ -111,14 +111,16 @@ def test_sql_result_is_usable_evidence_on_its_own():
     assert "128" in chat.last
 
 
-def test_a_sql_answer_cites_its_query():
+def test_a_sql_answer_is_rendered_from_the_row_and_cites_its_query():
     result = {
         "template": "count_flagged_aml",
         "params": {"start": "2026-08-01", "end": "2026-09-01", "dept": "None"},
         "rows": [{"flagged_count": 5}],
     }
-    chat = FakeChat("5 transactions were flagged for AML in August 2026.")
+    chat = FakeChat("a model must never be asked to restate a query result")
     draft, citations = synthesize("how many flagged?", [], sql_result=result, chat_model=chat)
-    assert draft.startswith("5 transactions")
+    assert draft == "5 transactions were flagged for AML between 1 and 31 August 2026."
     assert [c.source_platform for c in citations] == ["internal"]
-    assert "flagged_count = 5" in chat.last
+    # Rendered from the row, not drafted: restating it through a model would only add
+    # a second chance to get the number wrong, and something for a judge to check.
+    assert chat.calls == 0

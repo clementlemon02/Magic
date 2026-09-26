@@ -111,6 +111,17 @@ def synthesize(query: str, chunks: list[Chunk], sql_result=None, chat_model=None
         # hop loop and the escalation path stay the only ways this ends.
         return None, []
 
+    from src.agents.sql_tool import answer_sentence, answers_from_query_alone, result_citation
+
+    if answers_from_query_alone(chunks, sql_result):
+        # A query result is already the answer; asking a model to restate it only adds
+        # a second chance to get the number wrong. Rendered from the row instead, which
+        # is why verify_node passes this straight through (CLAUDE.md §4).
+        sentence = answer_sentence(sql_result)
+        if sentence:
+            citation = result_citation(sql_result)
+            return sentence, [citation] if citation else []
+
     prompt = PROMPT_TEMPLATE.format(evidence=_render_evidence(chunks, sql_result), query=query)
     reply = chat_model.invoke(prompt)
     text = str(getattr(reply, "content", reply)).strip()
