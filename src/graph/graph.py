@@ -57,7 +57,25 @@ def _from_retrieval(state: GraphState) -> str:
     # drafted, so no restricted content ever reaches the Synthesizer's prompt.
     if state.get("permission_conflicts"):
         return "escalation"
+    # A retry that found exactly the evidence the last hop judged insufficient can
+    # only reach the same verdict. Drafting and verifying it again cost two model
+    # calls a hop and pushed these refusals to 10s, past the refusal deadline.
+    if state.get("evidence_exhausted"):
+        return "escalation"
     return "synthesizer"
+
+
+def _noting_repeats(retrieval: Node) -> Node:
+    """Wrap Retrieval to flag a hop that returned the same chunks as the one before."""
+
+    def node(state: GraphState) -> dict:
+        out = retrieval(state)
+        before = {c.id for c in state.get("retrieved_chunks") or []}
+        after = {c.id for c in out.get("retrieved_chunks") or []}
+        out["evidence_exhausted"] = state.get("hop_count", 0) > 0 and after == before
+        return out
+
+    return node
 
 
 def _from_verifier(state: GraphState) -> str:
@@ -92,7 +110,7 @@ def build_graph(
     g = StateGraph(GraphState)
 
     g.add_node("router", router)
-    g.add_node("retrieval", retrieval)
+    g.add_node("retrieval", _noting_repeats(retrieval))
     g.add_node("sql_tool", sql_tool)
     g.add_node("clarification", clarification)
     g.add_node("synthesizer", synthesizer)
