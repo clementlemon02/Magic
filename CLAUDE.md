@@ -97,6 +97,10 @@ incomplete review.
 - In: `query`, `user`. Out: `route`.
 - Few-shot classification into `rag | sql | clarify`. Dominant-intent only for compound queries — no
   sub-query splitting in MVP.
+- Two tiers. A classifier distilled from the LLM Router (`router_student.json`, trained by
+  `scripts/train_router_student.py` on the question embedding) decides when its probability is
+  ≥ `ROUTER_STUDENT_MIN_CONFIDENCE`; otherwise the few-shot LLM Router does. Retrain it when the
+  embedding model or the routes change — it refuses to load against a different embedding model.
 
 ### Retrieval — `src/agents/retrieval.py`
 - In: `query`, `user`, `hop_count`. Out: `retrieved_chunks`, `permission_conflicts`, `hop_count`.
