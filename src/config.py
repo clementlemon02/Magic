@@ -57,6 +57,10 @@ class Settings(BaseSettings):
     query_cache_enabled: bool = True
     query_cache_similarity: float = 0.93
 
+    # Cosine floor for grouping unanswered questions into one knowledge gap.
+    # Per-model, like retrieval_min_score.
+    knowledge_gap_similarity: float = 0.75
+
     api_host: str = "0.0.0.0"
     api_port: int = 8000
 

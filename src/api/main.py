@@ -1,7 +1,7 @@
 """FastAPI entry point — CLAUDE.md §8 shared file, flag before editing.
 
-Serves `POST /query` (§7). The compliance and admin routes belong to the audit
-workstream and live in `src/api/compliance.py`.
+Serves `POST /query` (§7). The compliance and admin routes live in
+`src/api/compliance.py` and are mounted here.
 
 The caller's identity is resolved HERE, from the database, and never taken from
 the request body. A client that could send its own role or clearance_level would
@@ -14,6 +14,7 @@ import logging
 import time
 import uuid
 from collections.abc import Callable
+from datetime import UTC, datetime
 
 import psycopg
 from fastapi import FastAPI, HTTPException, Request
@@ -21,10 +22,11 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
+from src.api.compliance import build_router
 from src.cache import PermissionAwareCache
 from src.config import get_settings
 from src.graph.graph import build_graph, build_response
-from src.graph.state import AskerResponse, GraphState, UserContext
+from src.graph.state import AskerResponse, AuditEvent, GraphState, UserContext
 
 
 class QueryRequest(BaseModel):
@@ -123,21 +125,10 @@ def check_llm() -> str:
         return "unavailable"
 
 
-def _pending(name: str, owner: str) -> Callable[[GraphState], dict]:
-    """Stand-in for a node whose workstream has not merged yet.
-
-    Raises rather than returning empty state: a silent no-op here would look like
-    a legitimately empty retrieval and produce a confident answer from nothing.
-    """
-
-    def node(state: GraphState) -> dict:
-        raise NotImplementedError(f"{name} node is not implemented yet ({owner})")
-
-    return node
-
-
 def default_nodes() -> dict[str, Callable[[GraphState], dict]]:
+    from src.agents.audit import audit_node
     from src.agents.clarification import clarify_node
+    from src.agents.escalation import escalation_node
     from src.agents.retrieval import retrieval_node
     from src.agents.router import route_node
     from src.agents.sql_tool import sql_tool_node
@@ -151,9 +142,8 @@ def default_nodes() -> dict[str, Callable[[GraphState], dict]]:
         "verifier": verify_node,
         "sql_tool": sql_tool_node,
         "retrieval": retrieval_node,
-        # ponytail: placeholders until these land. Swap one line each on merge.
-        "escalation": _pending("escalation", "Jin Hui"),
-        "audit": _pending("audit", "Jin Hui"),
+        "escalation": escalation_node,
+        "audit": audit_node,
     }
 
 
@@ -191,7 +181,9 @@ def create_app(
     without sleeping; `refusal_deadline` overrides the configured value, 0 disables it.
     """
     app = FastAPI(title="Internal Brain")
-    graph = build_graph(**(nodes or default_nodes()))
+    nodes = nodes or default_nodes()
+    graph = build_graph(**nodes)
+    app.include_router(build_router(user_loader))
     settings = get_settings()
     if cache is None and settings.query_cache_enabled:
         cache = PermissionAwareCache(similarity_threshold=settings.query_cache_similarity)
@@ -258,6 +250,17 @@ def create_app(
         if cache is not None:
             cached = await run_in_threadpool(cache.get, request.query, user)
             if cached is not None:
+                # Served without running the graph, so audited here: an answer that
+                # left no trail would be the one gap in "every answer is on record".
+                hit = {
+                    **initial_state(request.query, user),
+                    "final_answer": cached.text,
+                    "citations": cached.citations,
+                    "audit_events": [AuditEvent(
+                        event_type="cache_hit", payload={}, occurred_at=datetime.now(UTC)
+                    )],
+                }
+                await run_in_threadpool(nodes["audit"], hit)
                 return cached
 
         state = await run_in_threadpool(graph.invoke, initial_state(request.query, user))
@@ -273,8 +276,7 @@ def create_app(
             return response
 
         # Answers are cached, and not padded — answer versus refusal is already
-        # visible in the text. A cache hit still owes an audit row, which the audit
-        # workstream has to emit here.
+        # visible in the text.
         if cache is not None:
             await run_in_threadpool(cache.put, request.query, user, response)
         return response

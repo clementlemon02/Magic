@@ -191,11 +191,13 @@ case tests for.
 ```sql
 ALTER TABLE audit_log ADD COLUMN prev_hash CHAR(64);
 ALTER TABLE audit_log ADD COLUMN row_hash  CHAR(64) NOT NULL;
--- row_hash = SHA-256(prev_hash || request_id || event_type || payload || created_at)
+-- row_hash = SHA-256(canonical JSON of [prev_hash, request_id, event_type, user_id, payload, created_at])
+-- user_id is hashed too, or a row could be re-attributed without breaking the chain. See src/agents/audit.py.
 ```
 
 Single-writer hash chain, not a blockchain — no consensus needed. `verify_audit_chain()` walks the table
-and flags the first row whose `row_hash` doesn't match. This check must exist and be demoable
+and flags the first row whose `row_hash` doesn't match (`python -m src.agents.audit verify`, or
+`GET /audit/verify`). This check must exist and be demoable
 (tamper a row → run the checker → see it flagged) before code freeze.
 
 ## 7. Naming conventions
