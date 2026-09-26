@@ -107,6 +107,10 @@ incomplete review.
   restricted chunk scores `PERMISSION_CONFLICT_SCORE_MARGIN` above the top filtered result — id + owning
   source only, never content. Reformulates and re-runs while `hop_count < RETRIEVAL_MAX_HOPS` and the
   Verifier reports insufficient grounding.
+- `acl_tags` and `permissions` are a MIRROR of each source's ACLs, fresh only as of the last ingest.
+  `drop_source_revoked` closes that window by asking the connector at query time, for **restricted**
+  documents only (`SOURCE_RECHECK_ENABLED`). Fails closed; a drop is recorded as `source_recheck_denied`,
+  identity only. Rules and rationale in `src/connectors/__init__.py`.
 
 ### Clarification — `src/agents/clarification.py`
 - In: `query`, Router's ambiguity signal. Out: `clarification_question`.
@@ -153,6 +157,16 @@ incomplete review.
   text (same Hunyuan embeddings as retrieval), clusters by cosine distance (no training), LLM-summarizes
   each cluster. Exposed via `GET /knowledge-gaps`.
 
+### Access-Gap — `src/agents/access_gap.py`
+- In: `audit_log` (batch, out of band). Out: an `AccessGapReport`.
+- `run_access_gap_scan(since: datetime) -> AccessGapReport`. The complement of Knowledge-Gap: that one
+  finds questions no document answers, this one finds questions a document DOES answer that the asker
+  could not see. Counts `permission_conflict` and `source_recheck_denied` events per document, ranked by
+  **distinct askers** — one person retrying is noise, six people from four teams is a permission model
+  that doesn't match the org. Exposed via `GET /access-gaps`.
+- **Compliance-only, and for a stronger reason than the rest of that router**: the report names restricted
+  items and who wanted them. Never expose it to an asker or fold it into anything that is.
+
 ### Ingestion connectors — `src/connectors/`
 - One `SourceConnector` protocol, four mock implementations (`confluence.py`, `jira.py`, `slack.py`,
   `drive.py`):
@@ -167,9 +181,10 @@ class SourceConnector(Protocol):
 
 `NativePermission` is a tagged union — `ConfluencePermission(space, page, viewer_groups)`,
 `JiraPermission(project, issue, role_required)`, `SlackPermission(channel, is_private, member_ids)`,
-`DrivePermission(file_id, folder_id, acl_entries)`. `check_access` runs at ingest time only, to compute
-the normalized `acl_tags` written to `document_chunks` — never cached as the authorization decision
-itself (§1).
+`DrivePermission(file_id, folder_id, acl_entries)`. `check_access` runs at ingest time to compute the normalized
+`acl_tags` written to `document_chunks` — never cached as the authorization decision itself (§1) — and
+again at query time for restricted documents, via `source_denies`, to close the mirror's staleness
+window. `src/connectors/__init__.py` holds the one platform → connector registry; don't build another.
 
 ## 5. Two-tier refusal contract
 
@@ -207,8 +222,8 @@ and flags the first row whose `row_hash` doesn't match (`python -m src.agents.au
 - Python modules: `snake_case.py`, one agent per file under `src/agents/`.
 - Branches: `retrieval/*`, `orchestration/*`, `audit/*` — matches the three workstreams (§8).
 - Env vars: `SCREAMING_SNAKE_CASE`, declared in `.env.example` before use, never hardcoded.
-- API routes: `POST /query`, `GET /audit/{request_id}`, `GET /knowledge-gaps`, admin revoke under
-  `POST /admin/permissions/revoke`.
+- API routes: `POST /query`, `GET /audit/{request_id}`, `GET /knowledge-gaps`, `GET /access-gaps`,
+  admin revoke under `POST /admin/permissions/revoke`.
 - Prompt constants: `PROMPT_TEMPLATE` (module-level, in the agent's own file), examples in
   `<agent>_examples.py` as `EXAMPLES`.
 
