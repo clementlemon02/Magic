@@ -1,4 +1,5 @@
-"""The web UI: the asker's page at `/` and the compliance dashboard at `/dashboard`.
+"""The web UI: the asker's page at `/`, and the compliance pages at `/dashboard`
+and `/audit`.
 
 Neither page carries data. Both are inert markup that fetch the API from the
 browser, so every gate stays where it already is — `/query` resolves the caller
@@ -16,7 +17,7 @@ from pathlib import Path
 from fastapi import APIRouter
 from fastapi.responses import HTMLResponse, Response
 
-PAGES = {name: Path(__file__).with_name(f"{name}.html") for name in ("ask", "dashboard")}
+PAGES = {name: Path(__file__).with_name(f"{name}.html") for name in ("ask", "dashboard", "audit")}
 STYLESHEET = Path(__file__).with_name("static") / "app.css"
 
 
@@ -34,6 +35,11 @@ def build_router() -> APIRouter:
     @router.get("/dashboard", response_class=HTMLResponse, include_in_schema=False)
     def dashboard() -> HTMLResponse:
         return page("dashboard")
+
+    @router.get("/audit", response_class=HTMLResponse, include_in_schema=False)
+    def audit() -> HTMLResponse:
+        # The page is inert like the others; /audit/recent and /audit/{id} are the gates.
+        return page("audit")
 
     @router.get("/ui/app.css", include_in_schema=False)
     def stylesheet() -> Response:

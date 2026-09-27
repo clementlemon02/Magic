@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Audit trail</title>
+<link rel="stylesheet" href="/ui/app.css">
+</head>
+<body>
+
+<header class="bar">
+  <span class="brand"><span class="dot"></span>Internal Brain <small>Aurelia</small></span>
+  <nav>
+    <a href="/">Ask</a>
+    <a href="/dashboard">Gaps</a>
+    <a href="/audit" aria-current="page">Audit</a>
+  </nav>
+  <span class="spacer"></span>
+  <button class="icon-button" id="theme" type="button" aria-label="Switch theme" title="Switch theme">◐</button>
+</header>
+
+<main class="page wide">
+  <h1>Audit trail</h1>
+  <p class="lede">Every request, hash-chained. Opening one reads its explanation back — the only
+    path that can, and itself recorded.</p>
+
+  <div class="panel" style="margin-bottom:22px">
+    <div class="controls">
+      <div>
+        <label class="label" for="uid">Viewing as</label>
+        <input id="uid" type="number" min="1" value="2" inputmode="numeric">
+      </div>
+      <div>
+        <label class="label" for="days">Days</label>
+        <input id="days" type="number" min="1" value="7" inputmode="numeric">
+      </div>
+      <button id="go" type="button">Refresh</button>
+      <button class="ghost" id="verify" type="button">Verify chain</button>
+      <div class="spacer" style="margin-left:auto"></div>
+      <div class="readout" id="count" hidden>
+        <span class="big" id="count-n">0</span><span class="unit">requests</span>
+      </div>
+    </div>
+  </div>
+
+  <div id="chain"></div>
+
+  <div class="split">
+    <div class="worklist" id="list"></div>
+    <div class="detail" id="detail"></div>
+  </div>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) =>
+  ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+try {
+  const saved = localStorage.getItem("ib-theme");
+  if (saved) document.documentElement.dataset.theme = saved;
+} catch (_) {}
+$("theme").addEventListener("click", () => {
+  const root = document.documentElement;
+  const dark = root.dataset.theme
+    ? root.dataset.theme === "dark"
+    : matchMedia("(prefers-color-scheme: dark)").matches;
+  root.dataset.theme = dark ? "light" : "dark";
+  try { localStorage.setItem("ib-theme", root.dataset.theme); } catch (_) {}
+});
+
+const headers = () => ({ "X-User-Id": $("uid").value });
+let requests = [];
+let current = null;
+
+const forbidden = () => `<div class="note alert"><b>User ${esc($("uid").value)} is not a
+  compliance officer.</b> A request id is the key to an explanation, so browsing them is
+  officer-only. Try user 2 or 7.</div>`;
+
+// Which events carry a verdict worth colouring. Everything else is process.
+const TONE = { escalation: "bad", permission_conflict: "bad", source_recheck_denied: "bad",
+               final_answer: "good", draft_answer: "good" };
+
+function renderList() {
+  if (!requests.length) {
+    return `<div class="note">No requests in this window. Ask something on the
+      <a href="/">Ask</a> page and it will appear here.</div>`;
+  }
+  return requests.map((r) => `
+    <button class="request" type="button" data-id="${esc(r.request_id)}"
+      aria-current="${r.request_id === current}">
+      <div class="q">${esc(r.query) || "(no question recorded)"}</div>
+      <div class="meta">
+        <span>user ${esc(r.user_id ?? "?")}</span>
+        <span>${esc(r.route ?? "—")}</span>
+        <span class="tag ${r.escalated ? "restricted" : "clear"}">${
+          r.escalated ? esc(r.reason || "refused") : "answered"}</span>
+        <span style="margin-left:auto">${esc(new Date(r.at).toLocaleTimeString())}</span>
+      </div>
+    </button>`).join("");
+}
+
+function renderDetail(report) {
+  const events = report.events.map((e, i) => {
+    const payload = JSON.stringify(e.payload, null, 1);
+    const last = i === report.events.length - 1;
+    return `<div class="event">
+      <div class="rail">
+        <span class="dot ${TONE[e.event_type] || ""}"></span>
+        ${last ? "" : '<span class="line"></span>'}
+      </div>
+      <div class="body">
+        <div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap">
+          <span class="type">${esc(e.event_type)}</span>
+          <span style="margin-left:auto;font:400 11.5px var(--mono);color:var(--muted)">${
+            esc(new Date(e.occurred_at).toLocaleTimeString())}</span>
+        </div>
+        <pre>${esc(payload.length > 420 ? payload.slice(0, 420) + "\\n…" : payload)}</pre>
+      </div>
+    </div>`;
+  }).join("");
+
+  const explanation = report.explanation
+    ? `<div class="warded" style="margin-bottom:18px">
+         <span class="label">Never sent to the asker</span>
+         <p style="margin:0;font-size:14.5px;line-height:1.6">${esc(report.explanation)}</p>
+         <p style="margin:12px 0 0;font-size:12.5px;color:var(--muted);line-height:1.55">
+           Reading this is itself on the record — a <span style="font-family:var(--mono)">compliance_inquiry</span>
+           row was appended when you opened it.</p>
+       </div>`
+    : `<div class="note" style="margin-bottom:18px">This request was answered. There is no
+         withheld explanation to read.</div>`;
+
+  const conflicts = report.permission_conflicts.length
+    ? `<div class="panel" style="margin-bottom:18px">
+         <span class="label">Withheld items</span>
+         ${report.permission_conflicts.map((c) => `
+           <div class="source">
+             <span class="ref"><span class="plat">${esc(c.source_platform)}:</span>${esc(c.source_ref)}</span>
+             <span class="tag restricted">${esc(c.sensitivity)}</span>
+             <span style="margin-left:auto;font:400 12px var(--mono);color:var(--withheld)">+${
+               c.score_margin.toFixed(2)}</span>
+           </div>`).join("")}
+       </div>`
+    : "";
+
+  return explanation + conflicts + events;
+}
+
+async function loadList() {
+  $("list").innerHTML = `<div class="note">Loading…</div>`;
+  $("count").hidden = true;
+  const response = await fetch(`/audit/recent?days=${encodeURIComponent($("days").value)}`,
+    { headers: headers() }).catch(() => null);
+  if (!response) {
+    $("list").innerHTML = `<div class="note alert"><b>Cannot reach the API.</b></div>`;
+    return;
+  }
+  if (response.status === 403) { $("list").innerHTML = forbidden(); $("detail").innerHTML = ""; return; }
+  requests = await response.json();
+  $("count-n").textContent = requests.length;
+  $("count").hidden = false;
+  $("list").innerHTML = renderList();
+  $("detail").innerHTML = requests.length
+    ? `<div class="note">Pick a request to read its trail.</div>` : "";
+}
+
+async function loadDetail(id) {
+  current = id;
+  $("list").innerHTML = renderList();
+  $("detail").innerHTML = `<div class="note">Loading…</div>`;
+  const response = await fetch(`/audit/${encodeURIComponent(id)}`, { headers: headers() })
+    .catch(() => null);
+  if (!response) { $("detail").innerHTML = `<div class="note alert"><b>Cannot reach the API.</b></div>`; return; }
+  if (response.status === 403) { $("detail").innerHTML = forbidden(); return; }
+  if (!response.ok) {
+    $("detail").innerHTML = `<div class="note alert"><b>HTTP ${response.status}</b></div>`;
+    return;
+  }
+  $("detail").innerHTML = renderDetail(await response.json());
+}
+
+async function verifyChain() {
+  $("chain").innerHTML = `<div class="note">Walking the chain…</div>`;
+  const response = await fetch("/audit/verify", { headers: headers() }).catch(() => null);
+  if (!response) { $("chain").innerHTML = `<div class="note alert"><b>Cannot reach the API.</b></div>`; return; }
+  if (response.status === 403) { $("chain").innerHTML = forbidden(); return; }
+  const report = await response.json();
+  $("chain").innerHTML = report.ok
+    ? `<div class="banner ok"><b>Chain verified.</b> No row has been altered.
+         <span class="mono">${report.rows_checked} rows walked</span></div>`
+    : `<div class="banner bad"><b>Chain broken at row ${report.first_bad_id}.</b>
+         ${esc(report.problem || "")}
+         <span class="mono">${report.rows_checked} rows walked</span></div>`;
+}
+
+$("list").addEventListener("click", (e) => {
+  const button = e.target.closest(".request");
+  if (button) loadDetail(button.dataset.id);
+});
+$("go").addEventListener("click", loadList);
+$("verify").addEventListener("click", verifyChain);
+for (const id of ["uid", "days"]) {
+  $(id).addEventListener("keydown", (e) => { if (e.key === "Enter") loadList(); });
+}
+loadList();
+</script>
+</body>
+</html>

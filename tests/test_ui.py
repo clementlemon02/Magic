@@ -113,3 +113,22 @@ def test_the_deadline_claim_is_bounded_by_the_measured_time():
     page = PAGES["ask"].read_text(encoding="utf-8")
     assert "seconds >= 3.9 && seconds <= 4.6" in page
     assert "ran past the 4.0s deadline" in page
+
+
+def test_the_audit_page_is_served_and_carries_no_trail_of_its_own():
+    client = _client()
+    response = client.get("/audit")
+    assert response.status_code == 200
+    assert "<title>Audit trail" in response.text
+    page = PAGES["audit"].read_text(encoding="utf-8")
+    # Everything it shows arrives from the two gated routes at runtime.
+    assert "/audit/recent" in page and "fetch(" in page
+    for leak in ("COMPLIANCE/aml-escalation", "Withheld:", "file-aml-evidence"):
+        assert leak not in page
+
+
+def test_small_labels_meet_contrast():
+    """#8b98a2 on white is ~2.9:1 — it failed AA for the 10.5px uppercase labels."""
+    from src.api.ui import STYLESHEET
+
+    assert "#8b98a2" not in STYLESHEET.read_text(encoding="utf-8")

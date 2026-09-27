@@ -44,6 +44,20 @@ class PermissionChangeResult(BaseModel):
     changed: int
 
 
+class RequestSummary(BaseModel):
+    """One request in the officer's worklist. Carries no explanation — that is still
+    only readable one request at a time, through /audit/{request_id}, and that read is
+    itself recorded."""
+
+    request_id: str
+    at: datetime
+    user_id: int | None
+    query: str
+    route: str | None
+    escalated: bool
+    reason: str | None
+
+
 class ChainStatus(BaseModel):
     ok: bool
     rows_checked: int
@@ -101,6 +115,16 @@ def build_router(user_loader: Callable, connect: Callable = audit._connect) -> A
     async def verify(user: UserContext = Depends(officer)) -> ChainStatus:
         report = await run_in_threadpool(audit.verify_audit_chain, connect)
         return ChainStatus(**report.__dict__)
+
+    @router.get("/audit/recent", response_model=list[RequestSummary])
+    async def recent(days: int = 7, limit: int = 100, user: UserContext = Depends(officer)):
+        # Declared before /audit/{request_id}: FastAPI matches in order, and "recent"
+        # would otherwise be taken for a request id and 422 on the UUID parse.
+        since = datetime.now(UTC) - timedelta(days=days)
+        rows = await run_in_threadpool(
+            audit.recent_requests, since, limit=min(limit, 500), connect=connect
+        )
+        return [RequestSummary(**row) for row in rows]
 
     @router.get("/audit/{request_id}", response_model=ComplianceExplanation)
     async def inquiry(request_id: uuid.UUID, user: UserContext = Depends(officer)):

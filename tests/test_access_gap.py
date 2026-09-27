@@ -167,3 +167,28 @@ def test_refusals_before_the_window_are_not_counted(connect):
     _refusal(connect, ALEX, "old question", _conflict(**AML, sensitivity="restricted"))
     report = run_access_gap_scan(datetime.now(UTC) + timedelta(hours=1), connect=connect)
     assert report.gaps == []  # nothing at all, real activity included
+
+
+# --- the officer's worklist ----------------------------------------------------
+
+@needs_database
+def test_recent_requests_reports_how_each_one_ended(connect):
+    """The officer's list: what was asked, by whom, and whether it was refused."""
+    from src.agents.audit import recent_requests
+
+    _refusal(connect, ALEX, "what triggers an AML review?",
+             _conflict(**AML, sensitivity="restricted"))
+    rows = recent_requests(datetime.now(UTC) - timedelta(hours=1), connect=connect)
+    mine = [r for r in rows if r["query"] == "what triggers an AML review?"]
+    assert mine, "the request just written is not in the window"
+    assert mine[0]["user_id"] == ALEX.id
+    # No final_answer row was written, so `escalated` must default rather than be null.
+    assert mine[0]["escalated"] is False
+
+
+@needs_database
+def test_recent_requests_excludes_anything_before_the_window(connect):
+    from src.agents.audit import recent_requests
+
+    _refusal(connect, ALEX, "old one", _conflict(**AML, sensitivity="restricted"))
+    assert recent_requests(datetime.now(UTC) + timedelta(hours=1), connect=connect) == []
