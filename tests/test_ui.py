@@ -55,7 +55,7 @@ def test_dashboard_route_is_hidden_from_the_api_schema():
 def test_the_ask_page_is_served_and_posts_to_query():
     response = _client().get("/")
     assert response.status_code == 200
-    assert "<title>Ask" in response.text
+    assert "<title>Internal Brain" in response.text
     assert '"/query"' in response.text
 
 
@@ -72,3 +72,44 @@ def test_the_ask_page_carries_the_refusal_string_only_to_recognise_it():
     page = PAGES["ask"].read_text(encoding="utf-8")
     assert page.count("I don't have an answer you're permitted") == 1
     assert "startsWith" in page
+
+
+def test_the_stylesheet_is_served_and_shared_by_both_pages():
+    """One stylesheet, so the two pages cannot drift apart visually."""
+    client = _client()
+    css = client.get("/ui/app.css")
+    assert css.status_code == 200
+    assert css.headers["content-type"].startswith("text/css")
+    assert "--withheld" in css.text  # semantic tokens, not just the accent
+    for name in ("ask", "dashboard"):
+        assert '/ui/app.css' in PAGES[name].read_text(encoding="utf-8")
+
+
+def test_both_pages_define_the_full_palette_on_bare_root():
+    """A token defined only inside a media query renders one theme's text on the
+    other theme's background. Every colour has to exist before either override."""
+    css = PAGES["ask"].read_text(encoding="utf-8")  # pages link it; read the file itself
+    from src.api.ui import STYLESHEET
+
+    sheet = STYLESHEET.read_text(encoding="utf-8")
+    base = sheet[sheet.index(":root {"): sheet.index("@media (prefers-color-scheme: dark)")]
+    for token in ("--ground", "--surface", "--ink", "--muted", "--line", "--accent",
+                  "--withheld", "--caution", "--clear"):
+        assert token in base, f"{token} is not defined on bare :root"
+    assert 'data-theme="dark"' in sheet and "prefers-color-scheme: dark" in sheet
+
+
+def test_hidden_elements_stay_hidden():
+    """`.readout{display:flex}` beats the UA rule for [hidden]; both pages use the
+    attribute to hide the live readouts until there is something to show."""
+    from src.api.ui import STYLESHEET
+
+    assert "[hidden] { display: none !important; }" in STYLESHEET.read_text(encoding="utf-8")
+
+
+def test_the_deadline_claim_is_bounded_by_the_measured_time():
+    """A refusal that ran long escaped the deadline. Claiming it was held, next to a
+    number that says otherwise, discredits the guarantee the product is built on."""
+    page = PAGES["ask"].read_text(encoding="utf-8")
+    assert "seconds >= 3.9 && seconds <= 4.6" in page
+    assert "ran past the 4.0s deadline" in page

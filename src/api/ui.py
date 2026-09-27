@@ -14,9 +14,10 @@ strings so their CSS and JS braces are not fighting `.format`.
 from pathlib import Path
 
 from fastapi import APIRouter
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
 
 PAGES = {name: Path(__file__).with_name(f"{name}.html") for name in ("ask", "dashboard")}
+STYLESHEET = Path(__file__).with_name("static") / "app.css"
 
 
 def build_router() -> APIRouter:
@@ -33,5 +34,12 @@ def build_router() -> APIRouter:
     @router.get("/dashboard", response_class=HTMLResponse, include_in_schema=False)
     def dashboard() -> HTMLResponse:
         return page("dashboard")
+
+    @router.get("/ui/app.css", include_in_schema=False)
+    def stylesheet() -> Response:
+        # One stylesheet for both pages, so they cannot drift apart. Served from a
+        # route rather than a StaticFiles mount: it is one file, and a mount would
+        # expose whatever else ends up in that directory.
+        return Response(STYLESHEET.read_text(encoding="utf-8"), media_type="text/css")
 
     return router
