@@ -1,6 +1,7 @@
 """Router classification and the guards around it."""
 
-from src.agents.router import _parse, classify, route_node
+from src.agents.router import PROMPT_TEMPLATE, _parse, classify, route_node
+from src.agents.router_examples import EXAMPLES
 from src.config import get_settings
 from src.graph.state import UserContext
 
@@ -91,3 +92,34 @@ def test_the_student_still_decides_rag_and_sql_on_its_own(monkeypatch):
                             chat_model=Teacher())
     assert out["route"] == "sql"
     get_settings.cache_clear()
+
+
+def test_decline_is_selectable():
+    assert classify("hi", chat_model=FakeChat("decline")) == "decline"
+
+
+def test_the_prompt_forbids_declining_a_hostile_question():
+    """The §1 line. `decline` is for the KIND of message — greetings, general
+    knowledge, "write me a poem". A hostile or probing question about company
+    material is still a question about company material: it routes `rag`, meets the
+    ACL predicate and the Verifier, and comes back as the generic refusal.
+
+    Widening `decline` to cover "obviously adversarial" input would move access
+    control into this prompt, which CLAUDE.md §1 forbids outright, and would swap a
+    structural guarantee for a model's judgement about intent. Measured end to end
+    in evals/adversarial_probe.py; pinned here so the prompt cannot drift quietly.
+    """
+    prompt = PROMPT_TEMPLATE.lower()
+    assert "do not decline them" in prompt
+    assert "aggressive" in prompt and "may not be allowed to see" in prompt
+
+    # And the few-shot has to show it, not just say it: an injection labelled `rag`.
+    hostile = [e for e in EXAMPLES if "ignore your instructions" in e["query"].lower()]
+    assert hostile and all(e["route"] == "rag" for e in hostile)
+
+
+def test_a_model_inventing_a_route_still_falls_back_to_rag():
+    """Unchanged by adding `decline`: the fallback must stay `rag`, never the new
+    route. Defaulting to `decline` would refuse real questions on a bad parse."""
+    assert _parse("outofscope") == "rag"
+    assert _parse("") == "rag"

@@ -213,16 +213,28 @@ def test_a_cache_hit_reports_the_cache_not_the_run_it_replays():
         trace=[Stage(node="synthesizer", hop=1, ms=2704.4)],
     )
 
-    class AlwaysHits:
-        def get(self, query, user):
-            return stored
+    from src.cache import CacheEntry
 
-        def put(self, query, user, response):
+    entry = CacheEntry(
+        vector=[], fingerprint="f", response=stored,
+        stored_at=datetime.now(UTC), route="sql",
+    )
+
+    class AlwaysHits:
+        def lookup(self, query, user):
+            return entry
+
+        def put(self, query, user, response, route=None):
             raise AssertionError("a hit must not re-cache")
 
-    app = create_app(nodes=_nodes(), user_loader=lambda uid: ALEX, cache=AlwaysHits())
+    audited = {}
+    nodes = _nodes(audit=lambda s: audited.update(s) or {"audit_events": []})
+    app = create_app(nodes=nodes, user_loader=lambda uid: ALEX, cache=AlwaysHits())
     body = TestClient(app).post("/query", json={"query": "anything"}, headers=as_user(1)).json()
 
     assert body["text"] == "45 days."
     assert [s["node"] for s in body["trace"]] == ["cache"]
     assert stored.trace[0].node == "synthesizer", "the cached entry was mutated"
+    # The audit records how the answer was ORIGINALLY produced. Without this it gets
+    # initial_state's "rag" placeholder, because the Router never ran.
+    assert audited["route"] == "sql", "a cached sql answer was audited as rag"

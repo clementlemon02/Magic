@@ -373,12 +373,18 @@ def create_app(
         # row before this handler ran.
 
         if cache is not None:
-            cached = await run_in_threadpool(cache.get, request.query, user)
-            if cached is not None:
+            entry = await run_in_threadpool(cache.lookup, request.query, user)
+            if entry is not None:
+                cached = entry.response
                 # Served without running the graph, so audited here: an answer that
                 # left no trail would be the one gap in "every answer is on record".
                 hit = {
                     **initial_state(request.query, user),
+                    # The route that produced the entry, not initial_state's `rag`
+                    # placeholder — the Router did not run, so the placeholder would
+                    # log a cached sql or decline request as a rag one. An older entry
+                    # stored before routes were recorded keeps the placeholder.
+                    **({"route": entry.route} if entry.route else {}),
                     "final_answer": cached.text,
                     "citations": cached.citations,
                     "audit_events": [AuditEvent(
@@ -409,7 +415,9 @@ def create_app(
         # Answers are cached, and not padded — answer versus refusal is already
         # visible in the text.
         if cache is not None:
-            await run_in_threadpool(cache.put, request.query, user, response)
+            await run_in_threadpool(
+                cache.put, request.query, user, response, state.get("route")
+            )
         return response
 
     return app

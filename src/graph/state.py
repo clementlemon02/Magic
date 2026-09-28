@@ -13,7 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 SourcePlatform = Literal["confluence", "jira", "slack", "drive", "internal"]
 Sensitivity = Literal["internal", "restricted"]
-Route = Literal["rag", "sql", "clarify", "escalate"]
+Route = Literal["rag", "sql", "clarify", "decline", "escalate"]
 AuditEventType = Literal[
     "query_received",
     # One per node the graph ran, written as it ran (§4). The rows below are a
@@ -46,6 +46,18 @@ EscalationReason = Literal[
 # The exact asker-facing refusal (CLAUDE.md §5). Lives here because Escalation
 # writes it and the API layer asserts on it — a judged demo moment, so one string.
 GENERIC_REFUSAL = "I don't have an answer you're permitted to see for this request."
+
+# The `decline` route's reply: the message was not a question about this company's
+# knowledge at all. Distinct from GENERIC_REFUSAL on purpose, and safe to be
+# distinct: the Router picks this from the query TEXT alone, before retrieval and
+# before any permission check, so it carries nothing about the corpus or the
+# caller's access. GENERIC_REFUSAL is the one that must stay uniform, because that
+# one IS decided by what the caller may see.
+DECLINE_REPLY = (
+    "I answer questions about Aurelia's internal knowledge — documents in Confluence, "
+    "Jira, Slack and Drive, and figures from the transactions table. Ask me something "
+    "from there and I'll answer what your permissions allow."
+)
 
 
 class UserContext(BaseModel):

@@ -14,6 +14,7 @@ from langgraph.graph import END, START, StateGraph
 
 from src.config import get_settings
 from src.graph.state import (
+    DECLINE_REPLY,
     GENERIC_REFUSAL,
     AskerResponse,
     AuditEvent,
@@ -40,6 +41,13 @@ def answer_node(state: GraphState) -> dict:
     # that distinguishes "nothing found" from "not permitted" (§5).
     if state.get("clarification_question") and not state.get("draft_answer"):
         return {"final_answer": state["clarification_question"], "citations": []}
+
+    # Not a question about company knowledge at all. Also after the refusal branch:
+    # the Router picks this from the query text before any retrieval, so it can never
+    # be reached by a request that touched the permission filter — but the ordering
+    # is what makes that true rather than merely likely.
+    if state.get("route") == "decline":
+        return {"final_answer": DECLINE_REPLY, "citations": []}
 
     return {
         "final_answer": state.get("draft_answer"),
@@ -199,6 +207,8 @@ def build_graph(
             "rag": "retrieval",
             "sql": "sql_tool",
             "clarify": "clarification",
+            # No node of its own: the reply is a constant, so `answer` writes it.
+            "decline": "answer",
             "escalate": "escalation",
         },
     )

@@ -87,6 +87,9 @@ class GraphState(TypedDict):
 `RETRIEVAL_MAX_HOPS` (default 3), `VERIFIER_CONFIDENCE_THRESHOLD`, `PERMISSION_CONFLICT_SCORE_MARGIN`
 are all env-configured (`.env.example`), never hardcoded in agent modules.
 
+`Route` is `rag | sql | clarify | decline | escalate`. The Router may select the first four;
+`escalate` is reachable only from Retrieval and the Verifier, which see evidence the Router does not.
+
 ## 4. Agent contracts
 
 Convention: one module per agent under `src/agents/<name>.py`. Each module exposes a top-level
@@ -97,8 +100,24 @@ incomplete review.
 
 ### Router / Planner — `src/agents/router.py`
 - In: `query`, `user`. Out: `route`.
-- Few-shot classification into `rag | sql | clarify`. Dominant-intent only for compound queries — no
-  sub-query splitting in MVP.
+- Few-shot classification into `rag | sql | clarify | decline`. Dominant-intent only for compound
+  queries — no sub-query splitting in MVP.
+- `decline` ends the turn with `DECLINE_REPLY`: the message was not about this company's knowledge at
+  all — a greeting, small talk, general knowledge, "write me a poem", or a question about the assistant
+  itself. It answers from a constant, so it never reaches retrieval.
+- **`decline` is about the KIND of message, never about intent.** A hostile, probing or injection
+  question about company material routes `rag` and meets the §1 predicate and the Verifier like any
+  other, ending in `GENERIC_REFUSAL`. Widening `decline` to cover "obviously adversarial" input would
+  put access control back in a prompt, which §1 forbids. Measured in `evals/adversarial_probe.py`:
+  hostile 6/6 refused, off-piste 5/5 declined, 0 content leaks, 0 existence disclosures.
+- Two distinguishable asker-facing replies is safe here and only here, because the Router picks
+  `decline` from the query TEXT alone — before retrieval, before any permission check — so it carries
+  nothing about the corpus or the caller's access. `_answer_node` checks it BELOW the escalation
+  branch, which is what makes that true rather than merely likely.
+- The distilled student cannot emit `decline` (three labels), and needs no retraining for it: off-piste
+  text is out of distribution for a classifier trained on company questions, so it scores 0.44–0.69 and
+  falls under the `ROUTER_STUDENT_MIN_CONFIDENCE` gate to the teacher. Real questions still
+  short-circuit at 0.875. Re-measure this if the student is retrained.
 - The distilled classifier answers above `ROUTER_STUDENT_MIN_CONFIDENCE`, **except for `clarify`**,
   which always goes to the LLM. A wrong `rag` or `sql` still meets the §1 filter and the Verifier, so
   it ends in a refusal at worst; a wrong `clarify` stalls a real question.
@@ -240,6 +259,11 @@ A `Citation` may carry the evidence behind it — `passage` for a chunk, `query`
 counted the rows — so an asker can check an answer instead of trusting it. That is safe on `Citation`
 and would not be on `AskerResponse`: `build_response` gives a refusal `AskerResponse(text=GENERIC_REFUSAL)`
 and nothing else, so `citations` is empty on every refusal and neither field has a path out on one.
+
+`DECLINE_REPLY` is the third fixed asker-facing string, for the Router's `decline` route. It is
+allowed to differ from `GENERIC_REFUSAL` — it is chosen from the query text before any permission
+check — but the two must not drift together: a refusal that reads like a scope message, or a scope
+message that hints at withheld material, would give back the distinction §5 exists to remove.
 
 `state.explanation` must never appear in an `AskerResponse`. If you're tempted to add detail to the
 asker-facing refusal "to be more helpful," don't — that's the exact failure mode the brief's negative
