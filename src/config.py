@@ -80,6 +80,12 @@ class Settings(BaseSettings):
     # Per-model, like retrieval_min_score.
     knowledge_gap_similarity: float = 0.75
 
+    # Load the model at startup instead of on the first question. A cold Ollama took
+    # 12.54s on the first request and 1.8s afterwards, and at a demo the first question
+    # is the one someone else asks. Off in tests (conftest.py) — every create_app would
+    # otherwise reach for a model.
+    warm_on_startup: bool = True
+
     api_host: str = "0.0.0.0"
     api_port: int = 8000
 

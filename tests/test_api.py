@@ -133,3 +133,29 @@ def test_identity_used_downstream_is_the_loaded_one_not_the_request():
     client.post("/query", json={"query": "anything", "user_id": 1})
     assert seen["user"].role == "support"
     assert seen["user"].acl_tags() == ["support", "support", "all-staff"]
+
+
+# --- startup warm-up -----------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_warm_up_does_nothing_when_it_is_off():
+    """conftest.py turns it off for the suite: every create_app would otherwise load
+    a 7B model to answer nothing."""
+    from src.api.main import _warm
+    from src.config import Settings
+
+    await _warm(Settings(_env_file=None, warm_on_startup=False))  # must not raise
+
+
+@pytest.mark.asyncio
+async def test_a_failed_warm_up_is_a_slow_first_answer_not_a_broken_start(monkeypatch):
+    """The server is already serving when this runs. A model that will not load is
+    a cold first question, never a failed startup."""
+    from src.api import main
+    from src.config import Settings
+
+    def unreachable():
+        raise ConnectionError("ollama is not running")
+
+    monkeypatch.setattr(main, "run_in_threadpool", lambda fn: unreachable())
+    await main._warm(Settings(_env_file=None, warm_on_startup=True))  # must not raise

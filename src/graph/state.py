@@ -16,6 +16,9 @@ Sensitivity = Literal["internal", "restricted"]
 Route = Literal["rag", "sql", "clarify", "escalate"]
 AuditEventType = Literal[
     "query_received",
+    # One per node the graph ran, written as it ran (§4). The rows below are a
+    # summary of the finished request; these are the request happening.
+    "node_transition",
     "retrieval",
     "sql_executed",
     "draft_answer",

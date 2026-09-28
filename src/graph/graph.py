@@ -6,12 +6,14 @@ before the retrieval and audit workstreams land their modules. Each node takes
 """
 
 import time
+import time
 from collections.abc import Callable
+from datetime import UTC, datetime
 
 from langgraph.graph import END, START, StateGraph
 
 from src.config import get_settings
-from src.graph.state import GENERIC_REFUSAL, AskerResponse, GraphState
+from src.graph.state import GENERIC_REFUSAL, AskerResponse, AuditEvent, GraphState
 
 Node = Callable[[GraphState], dict]
 
@@ -110,6 +112,40 @@ def _budget_left(state: GraphState) -> bool:
     return time.monotonic() - started < get_settings().retrieval_hop_budget_seconds
 
 
+def _recorded(name: str, node: Node) -> Node:
+    """Wrap a node so the graph writes one row per transition (§4).
+
+    The trail used to be derived from final state by the terminal audit node, so a
+    request that hopped three times recorded its last hop and a count. These rows are
+    written as each node returns: every hop is on the record with its own timestamp
+    and duration.
+
+    A node's own state writes win — retrieval and escalation already append their own
+    events — so this appends to whichever list came back rather than the one it was
+    handed. `audit` is not wrapped: it writes the trail, so a row about it could never
+    be in the trail it wrote.
+    """
+
+    def wrapped(state: GraphState) -> dict:
+        started = time.monotonic()
+        out = node(state)
+        events = list(out.get("audit_events") or state.get("audit_events") or [])
+        events.append(
+            AuditEvent(
+                event_type="node_transition",
+                payload={
+                    "node": name,
+                    "hop": out.get("hop_count", state.get("hop_count", 0)),
+                    "ms": round((time.monotonic() - started) * 1000, 1),
+                },
+                occurred_at=datetime.now(UTC),
+            )
+        )
+        return {**out, "audit_events": events}
+
+    return wrapped
+
+
 def build_graph(
     *,
     router: Node,
@@ -124,14 +160,20 @@ def build_graph(
 ):
     g = StateGraph(GraphState)
 
-    g.add_node("router", router)
-    g.add_node("retrieval", _noting_repeats(retrieval))
-    g.add_node("sql_tool", sql_tool)
-    g.add_node("clarification", clarification)
-    g.add_node("synthesizer", synthesizer)
-    g.add_node("verifier", verifier)
-    g.add_node("escalation", escalation)
-    g.add_node("answer", answer)
+    for name, node in (
+        ("router", router),
+        # _noting_repeats stays inside: it compares this hop's chunks with the last
+        # and belongs to retrieval, not to recording.
+        ("retrieval", _noting_repeats(retrieval)),
+        ("sql_tool", sql_tool),
+        ("clarification", clarification),
+        ("synthesizer", synthesizer),
+        ("verifier", verifier),
+        ("escalation", escalation),
+        ("answer", answer),
+    ):
+        g.add_node(name, _recorded(name, node))
+    # Unwrapped: it writes the trail, so it cannot appear in it.
     g.add_node("audit", audit)
 
     g.add_edge(START, "router")

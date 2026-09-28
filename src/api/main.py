@@ -10,6 +10,7 @@ from UserContext.
 """
 
 import asyncio
+from contextlib import asynccontextmanager
 import logging
 import time
 import uuid
@@ -171,6 +172,30 @@ def initial_state(query: str, user: UserContext) -> GraphState:
     }
 
 
+async def _warm(settings) -> None:
+    """Load the model before the first question arrives, not during it.
+
+    Fire and forget: the server is serving as soon as it binds, and a failure here
+    is a slow first answer, never a broken one — so every error is swallowed apart
+    from a log line. /health does not wait on it either, since a warm model is a
+    nicety and a reachable API is not.
+    """
+    if not settings.warm_on_startup:
+        return
+
+    def once() -> None:
+        from src.llm.factory import get_chat_model, get_embeddings
+
+        get_embeddings().embed_query("warm")
+        get_chat_model().invoke("Reply with the single word: ready")
+
+    try:
+        await run_in_threadpool(once)
+        logger.info("model warmed")
+    except Exception as error:  # noqa: BLE001 — a cold model is not a failed start
+        logger.warning("warm-up skipped: %s", error)
+
+
 def create_app(
     nodes: dict | None = None,
     user_loader=load_user,
@@ -183,7 +208,15 @@ def create_app(
     """Build the app. `clock` and `sleeper` are injectable so padding is testable
     without sleeping; `refusal_deadline` overrides the configured value, 0 disables it.
     """
-    app = FastAPI(title="Internal Brain")
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI):
+        # Not awaited: the server should be answering before the model finishes
+        # loading, and a warm-up that fails is a slow first answer, not a bad start.
+        task = asyncio.create_task(_warm(get_settings()))
+        yield
+        task.cancel()
+
+    app = FastAPI(title="Internal Brain", lifespan=lifespan)
     nodes = nodes or default_nodes()
     graph = build_graph(**nodes)
     app.include_router(build_router(user_loader))

@@ -99,6 +99,9 @@ incomplete review.
 - In: `query`, `user`. Out: `route`.
 - Few-shot classification into `rag | sql | clarify`. Dominant-intent only for compound queries — no
   sub-query splitting in MVP.
+- The distilled classifier answers above `ROUTER_STUDENT_MIN_CONFIDENCE`, **except for `clarify`**,
+  which always goes to the LLM. A wrong `rag` or `sql` still meets the §1 filter and the Verifier, so
+  it ends in a refusal at worst; a wrong `clarify` stalls a real question.
 - Two tiers. A classifier distilled from the LLM Router (`router_student.json`, trained by
   `scripts/train_router_student.py` on the question embedding) decides when its probability is
   ≥ `ROUTER_STUDENT_MIN_CONFIDENCE`; otherwise the few-shot LLM Router does. Retrain it when the
@@ -151,8 +154,11 @@ incomplete review.
 
 ### Audit — `src/agents/audit.py`
 - In: every state transition. Out: rows in `audit_log`.
-- One row per node transition, hash-chained (§6). `request_id`-keyed. `GET /audit/{request_id}` is the
-  only path that can read `explanation` back out.
+- One row per node transition, hash-chained (§6), written by `graph._recorded` as each node returns —
+  so every hop of a multi-hop request is on the record with its own timestamp and duration. A summary
+  of the finished request follows those rows. `request_id`-keyed. `GET /audit/{request_id}` is the only
+  path that can read `explanation` back out; `GET /audit/recent` lists requests for an officer to work
+  through, and both are role-gated.
 
 ### SQL Tool — `src/agents/sql_tool.py`
 - In: `query`, `user`. Out: `sql_result`.
@@ -235,7 +241,7 @@ and flags the first row whose `row_hash` doesn't match (`python -m src.agents.au
 - Python modules: `snake_case.py`, one agent per file under `src/agents/`.
 - Branches: `retrieval/*`, `orchestration/*`, `audit/*` — matches the three workstreams (§8).
 - Env vars: `SCREAMING_SNAKE_CASE`, declared in `.env.example` before use, never hardcoded.
-- API routes: `POST /query`, `GET /audit/{request_id}`, `GET /knowledge-gaps`, `GET /access-gaps`,
+- API routes: `POST /query`, `GET /audit/{request_id}`, `GET /audit/recent`, `GET /knowledge-gaps`, `GET /access-gaps`,
   admin revoke under `POST /admin/permissions/revoke`.
 - Prompt constants: `PROMPT_TEMPLATE` (module-level, in the agent's own file), examples in
   `<agent>_examples.py` as `EXAMPLES`.

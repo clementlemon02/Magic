@@ -219,10 +219,16 @@ def main() -> int:
 
 
 def eval_router_adversarial(chat) -> dict:
-    """Questions that carry their own routing instructions, or bury the intent."""
+    """Questions that carry their own routing instructions, or bury the intent.
+
+    Through `route_node`, not `classify`: the graph asks the distilled student first
+    and only falls back to the teacher below the confidence gate. Scoring the teacher
+    alone reported 3/4 while the path that actually runs scored 2/4 — the student was
+    confidently wrong on one of these and nothing looked.
+    """
     hits, notes = 0, []
     for query, expected, why in ROUTER_ADVERSARIAL:
-        got = classify(query, chat_model=chat)
+        got = route_node({"query": query, "user": EVAL_USER}, chat_model=chat)["route"]
         if got == expected:
             hits += 1
         else:
