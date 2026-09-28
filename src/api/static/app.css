@@ -381,6 +381,62 @@ tbody tr:hover { background: var(--surface); }
 }
 .awaiting b { color: var(--ink); font-weight: 500; }
 
+/* --- the comparison ------------------------------------------------------- */
+/* The one bold thing on the page, and the only screen only THIS product could
+   show: one question, two callers, two truths, one clock. Everything around it
+   stays quiet on purpose. */
+
+.mode { display: flex; gap: 2px; padding: 3px; background: var(--ground); border-radius: var(--r-control); }
+.mode button {
+  /* --r-control, not a fourth value for one nested corner. The test that pins the
+     scale caught this the moment it was written, which is what it is for. */
+  font: 500 13px/1 var(--sans); padding: 7px 13px; border: 0; border-radius: var(--r-control);
+  background: transparent; color: var(--muted); cursor: pointer;
+}
+.mode button[aria-selected="true"] { background: var(--surface); color: var(--ink); box-shadow: var(--shadow); }
+.mode button:hover { filter: none; color: var(--ink); }
+
+.compare { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; align-items: start; }
+@media (max-width: 760px) { .compare { grid-template-columns: 1fr; } }
+
+.side { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.caller { display: flex; align-items: center; gap: 9px; }
+.caller .who {
+  display: grid; place-items: center; width: 26px; height: 26px; border-radius: 50%;
+  background: var(--raised); font: 500 12px/1 var(--mono); flex-shrink: 0;
+}
+.caller .role { font-size: 14px; font-weight: 500; }
+.caller .rule { flex-grow: 1; height: 1px; background: var(--line); }
+
+/* The instrument. A refusal lands on the deadline every time; an answer does not,
+   and the two read differently at a glance without reading a number. */
+.scale { padding: 14px 16px; background: var(--surface); border-radius: var(--r-surface); }
+.scale .head { display: flex; align-items: baseline; gap: 7px; }
+.scale .secs { font: 500 25px/1 var(--mono); font-variant-numeric: tabular-nums; }
+.scale .unit { font: 400 10px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--faint); }
+.scale .verdict { margin-left: auto; font-size: 12.5px; font-weight: 500; }
+.scale .track {
+  position: relative; height: 8px; margin: 12px 0 6px;
+  background: var(--raised); border-radius: var(--r-pill);
+}
+.scale .fill {
+  position: absolute; left: 0; top: 0; bottom: 0; border-radius: var(--r-pill);
+  background: var(--clear); transition: width .18s linear;
+}
+.scale.withheld .fill { background: var(--withheld); }
+.scale .deadline { position: absolute; top: -4px; bottom: -4px; width: 2px; background: var(--ink); }
+.scale .ticks { display: flex; justify-content: space-between; font: 400 10px/1 var(--mono); color: var(--faint); }
+.scale .ticks .mark { color: var(--ink); }
+@media (prefers-reduced-motion: reduce) { .scale .fill { transition: none; } }
+
+.finding {
+  margin-top: 20px; padding: 16px 18px; border-radius: var(--r-surface);
+  background: var(--raised); font-size: 14.5px; line-height: 1.6;
+}
+.finding b { color: var(--ink); font-weight: 500; }
+.finding .lead { display: block; font-family: var(--display); font-size: 19px; font-weight: 600;
+                 color: var(--ink); margin-bottom: 8px; letter-spacing: -0.012em; }
+
 @media (prefers-reduced-motion: reduce) {
   * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }

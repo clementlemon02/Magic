@@ -206,3 +206,20 @@ def test_only_what_earns_an_edge_keeps_one():
     assert "border: 0" in _rule(css, ".request"), "a worklist is a list, not cards"
     assert "border: 1px solid var(--line)" in _rule(css, ".answer")
     assert "border: 1px solid var(--line)" in _rule(css, ".warded")
+
+
+def test_the_comparison_runs_the_two_callers_one_at_a_time():
+    """One model serves one request at a time, so two in flight would queue and the
+    second clock would show the wait rather than the work — a lie on the one screen
+    whose entire point is timing."""
+    page = PAGES["ask"].read_text(encoding="utf-8")
+    assert "Sequential, not parallel" in page
+    assert "Promise.all" not in page, "the two callers must not be raced"
+
+
+def test_the_comparison_draws_the_deadline_to_scale():
+    """A refusal landing on the deadline and an answer running past it is the whole
+    property, read without a number. It has to be plotted, not asserted."""
+    page = PAGES["ask"].read_text(encoding="utf-8")
+    assert "const DEADLINE = 4.0;" in page and "const SCALE = 8.0;" in page
+    assert "(DEADLINE / SCALE) * 100" in page, "the marker must sit at its true position"
