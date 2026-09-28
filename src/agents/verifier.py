@@ -149,6 +149,58 @@ def _parse(raw: str) -> VerificationResult:
     )
 
 
+# --- the quantity check ---------------------------------------------------------
+# Deterministic, and applied AFTER the judge. The judge is a 7B model asked to grade
+# its own sibling's homework, and it fails open: given "refunds above SGD 2,000 need
+# team lead approval" and a Slack message about a backlog being cleared that names no
+# threshold at all, qwen2.5:7b returns grounded at confidence 0.924. Prompt wording
+# and evidence reordering did not move it; qwen3:8b judges it correctly at ~17s a
+# call, which the demo cannot spend. So the figure itself is checked in code.
+#
+# This can only ever turn grounded into ungrounded — it fails closed, like everything
+# else that guards an answer here — and it catches the whole class the judge is worst
+# at: invented thresholds, amounts, deadlines and counts.
+
+_NUMBER = re.compile(r"\d[\d,]*(?:\.\d+)?")
+
+# Spelled-out numbers, so "five business days" in the evidence supports "5 business
+# days" in the answer. Small words only: past twenty the model writes digits.
+_WORD_NUMBERS = {
+    "zero": 0, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6,
+    "seven": 7, "eight": 8, "nine": 9, "ten": 10, "eleven": 11, "twelve": 12,
+    "thirteen": 13, "fourteen": 14, "fifteen": 15, "sixteen": 16, "seventeen": 17,
+    "eighteen": 18, "nineteen": 19, "twenty": 20, "thirty": 30, "forty": 40,
+    "fifty": 50, "sixty": 60, "seventy": 70, "eighty": 80, "ninety": 90,
+    "hundred": 100, "thousand": 1000, "million": 1000000,
+}
+
+
+def _quantities(text: str) -> set[float]:
+    """Every number the text states, digits and spelled-out alike, as plain values.
+
+    Canonical values rather than strings, so "2,000" and "2000" are the same number
+    and an answer is not refused over a thousands separator.
+    """
+    found = {float(m.group().replace(",", "")) for m in _NUMBER.finditer(text or "")}
+    for word in re.findall(r"[a-z]+", (text or "").lower()):
+        if word in _WORD_NUMBERS:
+            found.add(float(_WORD_NUMBERS[word]))
+    return found
+
+
+def unsupported_quantities(
+    answer: str, query: str, chunks: list[Chunk], sql_result=None
+) -> list[float]:
+    """Figures the answer asserts that nothing it was given actually states.
+
+    The question counts as a source: an asker who writes "can I approve a SGD 3,000
+    refund" may have that figure repeated back to them, and refusing over it would
+    make the system unable to answer any question containing a number.
+    """
+    supported = _quantities(_render_evidence(chunks, sql_result)) | _quantities(query)
+    return sorted(_quantities(answer) - supported)
+
+
 def cited_chunks(chunks: list[Chunk], citations: list[Citation]) -> list[Chunk]:
     """Narrow the evidence to the passages the answer actually drew on.
 
@@ -193,7 +245,7 @@ def verify(
     # on the plain path. Otherwise prefer the measured one and fall back when the
     # backend cannot report logprobs.
     if chat_model is None:
-        measured = _verify_measured(prompt)
+        measured = _measured_then_checked(prompt, draft_answer, query, chunks, sql_result)
         if measured is not None:
             return measured
 
@@ -202,7 +254,34 @@ def verify(
         chat_model = get_chat_model()
 
     reply = chat_model.invoke(prompt)
-    return _parse(getattr(reply, "content", reply))
+    return _grounded_in_figures(_parse(getattr(reply, "content", reply)),
+                               draft_answer, query, chunks, sql_result)
+
+
+def _grounded_in_figures(
+    result: VerificationResult, answer: str, query: str, chunks, sql_result
+) -> VerificationResult:
+    """Overrule a `grounded` verdict when the answer states a figure nothing gave it.
+
+    One direction only. An ungrounded verdict is left alone — the judge catching
+    something this cannot see is the normal case — and a grounded one is downgraded,
+    never the reverse. Confidence 1.0 because this is arithmetic, not an opinion: the
+    number is absent, and a low confidence would read as "unsure" to the threshold.
+
+    Downgraded rather than escalated outright, so the hop loop gets a chance to go
+    and find evidence for the figure before the request is refused.
+    """
+    if not result.grounded:
+        return result
+    missing = unsupported_quantities(answer, query, chunks, sql_result)
+    if not missing:
+        return result
+    figures = ", ".join(f"{m:,.10g}" for m in missing)
+    return result.model_copy(update={
+        "grounded": False,
+        "unsupported": [*result.unsupported, f"the evidence does not state: {figures}"],
+        "confidence": 1.0,
+    })
 
 
 def _verify_measured(prompt: str) -> VerificationResult | None:
@@ -224,6 +303,14 @@ def _verify_measured(prompt: str) -> VerificationResult | None:
     if measured is None or result is _UNREADABLE:
         return result
     return result.model_copy(update={"confidence": measured})
+
+
+def _measured_then_checked(prompt, answer, query, chunks, sql_result):
+    """`_verify_measured`, with the figure check applied to whatever it returns."""
+    measured = _verify_measured(prompt)
+    if measured is None:
+        return None
+    return _grounded_in_figures(measured, answer, query, chunks, sql_result)
 
 
 # A code-rendered query answer is grounded by construction, so this is a statement

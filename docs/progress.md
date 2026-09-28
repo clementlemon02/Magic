@@ -125,15 +125,7 @@ The test suite no longer touches demo data (fixed in #16).
 
 ## 5. Open issues
 
-1. **Verifier approves an answer its evidence does not support.** The worst of these,
-   because it is the only one that fails OPEN. Given the SGD 3,000 refund answer and
-   only `slack:support-updates` — a message about a backlog being cleared, stating no
-   threshold and no approval rule — qwen2.5:7b judges it grounded at confidence 0.924.
-   Found 26 Sep while narrowing the Verifier to cited passages (#27); recorded in
-   `evals/cases.py`, which is why "hallucinations caught" is now 7/8 rather than 8/8.
-   Does not affect the SQL path, which since #27 has no model in the loop to invent
-   anything for a judge to miss.
-2. **Verifier false refusal on the same question.** "Can I approve a SGD 3,000 refund
+1. **Verifier false refusal.** "Can I approve a SGD 3,000 refund
    myself?" is refused end to end. Fails closed. **The cause is not passage count**, as
    this was previously recorded here: per passage, with the same answer, the judge
    refuses against `drive:file-refund-playbook` (conf 1.000) and accepts against
@@ -142,10 +134,28 @@ The test suite no longer touches demo data (fixed in #16).
    team lead" — an anaphor — and its presence flips the verdict even when the verbatim
    passage is there too. Narrowing to cited passages (3 of 4) did not fix it, and made
    the judge MORE confident in the wrong verdict: 0.781 -> 0.911.
-3. **Known limits, documented in code:** the audit chain cannot detect truncation of
+2. **Known limits, documented in code:** the audit chain cannot detect truncation of
    its newest rows; a revoked user's refusals on internal documents can appear as
    knowledge gaps; `AUTH_SECRET` is a committed demo key with no refresh, revocation
    list or rotation — whoever holds it can mint a token for any user.
+
+Closed in #29: **the Verifier fail-open**, the only open issue that failed in the dangerous
+direction. A `grounded` verdict is now checked against the figures in code — every number the
+answer states must appear in the evidence or the question, or the verdict is downgraded
+(`verifier.unsupported_quantities`, one direction only). Hallucinations caught 7/8 → 8/8. The
+check is precise about it: on the same answer with all four passages present, where SGD 2,000
+genuinely appears, it does not fire, so the remaining false refusal above is unchanged and is
+still the model's own.
+
+Also closed in #29: the `clarify` dumping ground (every non-question — greetings, thanks,
+"write me a poem" — was answered with a clarifying question), and cache hits being audited with
+`initial_state`'s `rag` placeholder instead of the route that produced the entry.
+
+Caught before shipping in #29: `decline` was first added as a fourth option in the routing
+prompt, which took `ROUTER_ADVERSARIAL` from 4/4 to 2/4 — a plain company question wrapped in an
+instruction was declined outright. Moved to a separate yes/no asked only on the `clarify` branch;
+back to 4/4. Worth remembering as a shape: a 7B has a budget for how many distinctions one prompt
+can carry, and the cost of spending it lands on whatever that prompt was already doing.
 
 Closed in #28: the router adversarial miss (2/4 through the path the graph actually
 runs, now 4/4 — the eval had been scoring the teacher rather than `route_node`);
