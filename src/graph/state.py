@@ -174,11 +174,19 @@ class GraphState(TypedDict):
 
 
 class Stage(BaseModel):
-    """One node the graph ran, and how long it took."""
+    """One node the graph ran, how long it took, and what it did.
+
+    `detail` is a few words for the pipeline view — "8 passages", "grounded 0.94".
+    Safe because a Stage only ever reaches an asker on an ANSWER: `build_response`
+    gives a refusal an empty trace, so nothing here can describe a withheld request.
+    Counts permitted evidence only, never how much was filtered out — that number
+    would say restricted material exists, which is the §5 leak in another costume.
+    """
 
     node: str
     hop: int
     ms: float
+    detail: str | None = None
 
 
 class AskerResponse(BaseModel):

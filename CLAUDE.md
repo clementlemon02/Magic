@@ -274,6 +274,12 @@ def build_audit_explanation(request_id: str) -> ComplianceExplanation:
     ...
 ```
 
+A `Stage` may carry a `detail` — "6 passages", "grounded 0.94" — for the Ask page's pipeline view.
+Safe for the same structural reason: `build_response` gives a refusal an empty trace, so a Stage only
+ever reaches an asker on an answer. It counts PERMITTED evidence only. How many chunks the ACL
+predicate filtered out is exactly the number §5 forbids: it would tell an asker restricted material
+exists without naming it, which is the existence leak wearing a different hat.
+
 A `Citation` may carry the evidence behind it — `passage` for a chunk, `query` for the SQL that
 counted the rows — so an asker can check an answer instead of trusting it. That is safe on `Citation`
 and would not be on `AskerResponse`: `build_response` gives a refusal `AskerResponse(text=GENERIC_REFUSAL)`

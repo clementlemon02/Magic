@@ -514,6 +514,47 @@ nav a.locked::after {
 @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .25; } }
 .pipeline .arrow { color: var(--line); font-size: 11px; }
 .pipeline .cache-why { color: var(--faint); font-size: 12px; }
+/* `.span`, never `.bar`: `.bar` is the page header's own bare selector, and a
+   lane using it inherited the nav's padding and ground — 43px rows under white
+   boxes that overlapped the header.
+   The waterfall: one lane per agent, bar width proportional to measured time. */
+.pipeline.stack { display: block; }
+.pipehead { display: flex; align-items: baseline; gap: 10px; margin-bottom: 8px; }
+.pipehead .section { margin: 0; }
+.pipehead .total { margin-left: auto; }
+.flow { display: flex; flex-direction: column; gap: 3px; }
+.lane {
+  display: grid; grid-template-columns: 108px 1fr 64px; align-items: center; gap: 10px;
+  font: 400 12px/1.5 var(--mono);
+}
+.lane .who { color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lane .who b { color: var(--accent); font-weight: 500; }
+.lane .span { position: relative; display: flex; align-items: center; gap: 8px; min-width: 0; }
+.lane .span i {
+  display: block; height: 9px; border-radius: var(--r-pill); background: var(--accent);
+  flex-shrink: 0; min-width: 2px;
+}
+.lane .span em {
+  font-style: normal; color: var(--muted); white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis;
+}
+.lane .ms {
+  color: var(--muted); text-align: right; font-variant-numeric: tabular-nums;
+  white-space: nowrap;  /* "not used" wrapped to two lines and doubled the lane */
+}
+/* An agent this request did not need. Present so the list says what the system has,
+   not only what this one question happened to touch. */
+.lane.off .who, .lane.off .ms { color: var(--faint); }
+.lane.off .span::before {
+  content: ""; height: 1px; width: 100%; background: var(--line); opacity: .6;
+}
+.lane.rest .who, .lane.rest .ms { color: var(--muted); }
+.lane.rest .span em { color: var(--faint); }
+
+@media (max-width: 560px) {
+  .lane { grid-template-columns: 88px 1fr 58px; gap: 6px; font-size: 11px; }
+}
+
 .pipeline .total {
   margin-left: auto; font: 400 12px/1 var(--mono); color: var(--muted);
   font-variant-numeric: tabular-nums;

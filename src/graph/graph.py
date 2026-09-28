@@ -67,7 +67,8 @@ def build_response(state: GraphState) -> AskerResponse:
         text=state.get("final_answer") or "",
         citations=state.get("citations") or [],
         trace=[
-            Stage(node=e.payload["node"], hop=e.payload["hop"], ms=e.payload["ms"])
+            Stage(node=e.payload["node"], hop=e.payload["hop"], ms=e.payload["ms"],
+                  detail=e.payload.get("detail"))
             for e in (state.get("audit_events") or [])
             if e.event_type == "node_transition"
         ],
@@ -135,6 +136,32 @@ def _budget_left(state: GraphState) -> bool:
     return time.monotonic() - started < get_settings().retrieval_hop_budget_seconds
 
 
+def _detail(name: str, out: dict) -> str | None:
+    """A few words about what a node just did, for the pipeline view.
+
+    Read from the node's own output, which is the only place it exists. PERMITTED
+    evidence only: "8 passages" is what this caller got, and how many were filtered
+    out is exactly the number §5 forbids — it would say restricted material exists
+    without naming it. A refusal carries no trace at all, so nothing here can ever
+    describe a withheld request (see `build_response`).
+    """
+    if name == "router":
+        return out.get("route")
+    if name == "retrieval":
+        chunks = out.get("retrieved_chunks")
+        return f"{len(chunks)} passage{'' if len(chunks) == 1 else 's'}" if chunks else None
+    if name == "synthesizer":
+        cited = out.get("citations")
+        return f"{len(cited)} cited" if cited else None
+    if name == "sql_tool":
+        result = out.get("sql_result")
+        return (result or {}).get("template") if isinstance(result, dict) else None
+    if name == "verifier":
+        v = out.get("verification")
+        return f"{'grounded' if v.grounded else 'ungrounded'} {v.confidence:.2f}" if v else None
+    return None
+
+
 def _recorded(name: str, node: Node) -> Node:
     """Wrap a node so the graph writes one row per transition (§4).
 
@@ -160,6 +187,7 @@ def _recorded(name: str, node: Node) -> Node:
                     "node": name,
                     "hop": out.get("hop_count", state.get("hop_count", 0)),
                     "ms": round((time.monotonic() - started) * 1000, 1),
+                    "detail": _detail(name, out),
                 },
                 occurred_at=datetime.now(UTC),
             )

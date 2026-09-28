@@ -5,6 +5,8 @@ the caller from the database, the two gap reports require the compliance role â€
 these check that the shells really are inert, rather than that they look right.
 """
 
+from pathlib import Path
+
 from fastapi.testclient import TestClient
 
 from src.api.ui import PAGES, build_router
@@ -287,3 +289,29 @@ def test_the_clock_owns_its_own_interval():
     page = PAGES["ask"].read_text(encoding="utf-8")
     assert "let ticking" not in page, "the interval id is shared between clocks again"
     assert "let tick = null;" in page and "clearInterval(tick)" in page
+
+
+def test_the_pipeline_names_every_agent_the_graph_records():
+    """The waterfall lists agents a request did NOT use, which is the point of it â€”
+    a view showing only the four that ran never says what the other four are for. So
+    the roster has to track the graph: add a node and this fails until the page knows
+    about it. `audit` is excluded because it writes the trail and is not recorded in
+    it, so it can never appear in a trace."""
+    import re
+
+    graph = (Path(__file__).parents[1] / "src/graph/graph.py").read_text(encoding="utf-8")
+    body = graph[graph.index("for name, node in ("):graph.index('g.add_node(name, _recorded')]
+    recorded = set(re.findall(r'\("(\w+)",', body))
+
+    page = PAGES["ask"].read_text(encoding="utf-8")
+    listed = set(re.findall(r'\["(\w+)",\s*"[A-Z]', page[page.index("const AGENTS = ["):]))
+    assert recorded == listed, f"graph records {recorded - listed}, page lists {listed - recorded}"
+
+
+def test_the_bar_class_is_not_the_page_header():
+    """`.bar` is the header's own bare selector. A lane that used it inherited the
+    nav's padding and ground: 43px rows under white boxes overlapping the header."""
+    page = PAGES["ask"].read_text(encoding="utf-8")
+    flow = page[page.index("function waterfall("):page.index("function pipeline(")]
+    assert 'class="bar"' not in flow, "a lane is using the page header's class again"
+    assert 'class="span"' in flow

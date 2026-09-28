@@ -363,3 +363,31 @@ def test_the_two_fixed_replies_stay_distinct_and_neither_contains_the_other():
     assert GENERIC_REFUSAL not in DECLINE_REPLY and DECLINE_REPLY not in GENERIC_REFUSAL
     for tell in ("permitted", "restricted", "clearance", "access", "not allowed"):
         assert tell not in DECLINE_REPLY.lower(), f"the scope message hints at withholding: {tell}"
+
+
+def test_a_stage_detail_counts_only_permitted_evidence():
+    """"6 passages" is what this caller got. How many were filtered OUT is the number
+    §5 forbids — it would tell an asker restricted material exists without naming it,
+    which is the existence leak in another costume. `_detail` reads the node's own
+    output, which only ever holds what survived the ACL predicate."""
+    from src.graph.graph import _detail
+
+    assert _detail("retrieval", {"retrieved_chunks": [_chunk(1), _chunk(2)]}) == "2 passages"
+    assert _detail("retrieval", {"retrieved_chunks": [_chunk(1)]}) == "1 passage"
+    assert _detail("retrieval", {"retrieved_chunks": []}) is None
+    assert _detail("verifier", {"verification": VerificationResult(
+        grounded=True, unsupported=[], confidence=0.94)}) == "grounded 0.94"
+    assert _detail("escalation", {"escalated": True, "explanation": "matched COMPLIANCE/aml"}) is None
+
+
+def test_a_detail_never_rides_out_on_a_refusal():
+    """The whole reason per-node detail is safe: build_response gives a refusal an
+    empty trace, so nothing computed here can describe a withheld request."""
+    from src.graph.graph import build_response
+
+    ran = [AuditEvent(event_type="node_transition",
+                      payload={"node": "retrieval", "hop": 1, "ms": 5.0, "detail": "6 passages"},
+                      occurred_at=datetime.now(UTC))]
+    assert build_response({"escalated": True, "audit_events": ran}).trace == []
+    kept = build_response({"escalated": False, "final_answer": "x", "audit_events": ran})
+    assert kept.trace[0].detail == "6 passages"

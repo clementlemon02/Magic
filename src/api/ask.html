@@ -89,41 +89,101 @@ $("chips").addEventListener("click", (e) => {
    retrieval on hop 1, an unsupported answer grinds through three — which is exactly
    what the constant-time refusal exists to hide. Replaying after the response
    leaves the clock outside unchanged. */
-const STAGES = ["router", "retrieval", "synthesizer", "verifier", "answer"];
+/* Every agent in the graph, in the order a request meets them. The ones a given
+   request did not use are shown too, greyed: "our agents" is the point, and a list
+   that only ever shows four of them never says what the other four are for. */
+const AGENTS = [
+  ["router",       "Router",        "picks the handler"],
+  ["retrieval",    "Retrieval",     "ACL-filtered vector search"],
+  ["sql_tool",     "SQL Tool",      "templated query, no model-written SQL"],
+  ["clarification","Clarification", "asks one question back"],
+  ["synthesizer",  "Synthesizer",   "drafts from permitted evidence"],
+  ["verifier",     "Verifier",      "judges every claim"],
+  ["escalation",   "Escalation",    "refuses, generically"],
+  ["answer",       "Answer",        "assembles the reply"],
+];
+const LABEL = new Map(AGENTS.map(([k, name, blurb]) => [k, { name, blurb }]));
+
+/* A waterfall rather than a row of pills: the bar widths are the measured times, so
+   where a request actually spends itself is visible rather than stated. Replayed
+   from the response's own trace and never streamed — a stage arriving live would let
+   anyone reconstruct why a refusal happened from its shape, which is what the
+   constant-time refusal exists to hide. */
+// The longest bar stops here, leaving the rest of the lane for its label. Scaled in
+// the width rather than capped with max-width: capping would squash every bar above
+// the cap onto the same length and quietly break the proportions the chart is for.
+// 72% because the side-by-side columns are half width, where "grounded 1.00" was
+// clipping to "g".
+const BAR_SPAN = 72;
+
+function waterfall(trace, seconds) {
+  const ran = new Map();
+  for (const s of trace) {
+    const prior = ran.get(s.node);
+    // A node that looped is one row carrying the total and the count, not four rows
+    // that each look like the whole of retrieval.
+    ran.set(s.node, prior
+      ? { ...prior, ms: prior.ms + s.ms, times: prior.times + 1, detail: s.detail || prior.detail }
+      : { ms: s.ms, times: 1, detail: s.detail });
+  }
+  const worked = [...ran.values()].reduce((a, s) => a + s.ms, 0);
+  const widest = Math.max(...[...ran.values()].map((s) => s.ms), 1);
+  const idle = seconds === null ? null : seconds * 1000 - worked;
+
+  const rows = AGENTS.map(([key, name, blurb]) => {
+    const s = ran.get(key);
+    if (!s) {
+      return `<div class="lane off" title="${esc(blurb)}">
+        <span class="who">${esc(name)}</span>
+        <span class="span"></span><span class="ms">not used</span></div>`;
+    }
+    return `<div class="lane" title="${esc(blurb)}">
+      <span class="who">${esc(name)}${s.times > 1 ? ` <b>×${s.times}</b>` : ""}</span>
+      <span class="span"><i style="width:${Math.max((s.ms / widest) * BAR_SPAN, 1.5)}%"></i>
+        ${s.detail ? `<em>${esc(s.detail)}</em>` : ""}</span>
+      <span class="ms">${Math.round(s.ms)}ms</span></div>`;
+  }).join("");
+
+  // Everything outside the nodes: HTTP, auth, the cache lookup, the fingerprint
+  // query. Named rather than left as a gap between two numbers that don't add up.
+  const overhead = idle !== null && idle > 40
+    ? `<div class="lane rest"><span class="who">elsewhere</span>
+       <span class="span"><em>request, auth, cache lookup</em></span>
+       <span class="ms">${Math.round(idle)}ms</span></div>` : "";
+
+  return `<div class="flow">${rows}${overhead}</div>`;
+}
 
 function pipeline(trace, { running = false, seconds = null } = {}) {
   // Measured wall clock for THIS turn, kept with it. The composer readout only
   // exists while a question is in flight.
   const total = seconds === null ? "" :
     `<span class="total">${seconds.toFixed(2)}s total</span>`;
-  // A refusal carries no trace at all. Five greyed-out stages read as "still
-  // loading"; say instead that the trace is withheld, which is the actual reason
-  // and the same reason the sentence above it is generic.
-  if (!running && !(trace && trace.length)) {
+
+  if (running) {
+    return `<div class="pipeline"><span class="stage running">
+      <span class="bead"></span>running — the pipeline is replayed once it lands,
+      never streamed</span></div>`;
+  }
+  // A refusal carries no trace at all. Greyed-out stages read as "still loading";
+  // say instead that the trace is withheld, which is the actual reason and the same
+  // reason the sentence above it is generic.
+  if (!(trace && trace.length)) {
     return `<div class="pipeline"><span class="stage withheld">
       <span class="bead"></span>pipeline withheld — its shape names the cause</span>${total}</div>`;
   }
   // A hit runs no graph, so its trace is the one stage that did run. Worth naming:
   // the key includes the caller's live grant set, so this answer was cached by
   // someone with exactly this access — revoke a grant and the entry stops matching.
-  if (trace && trace.length === 1 && trace[0].node === "cache") {
+  if (trace.length === 1 && trace[0].node === "cache") {
     return `<div class="pipeline"><span class="stage on">
-      <span class="bead"></span>served from cache${
-        ""}<span class="took">${Math.round(trace[0].ms)}ms</span></span>
+      <span class="bead"></span>served from cache<span class="took">${
+        Math.round(trace[0].ms)}ms</span></span>
       <span class="cache-why">cached against this caller's live permissions, not just the question</span>${total}</div>`;
   }
-  const done = new Map((trace || []).map((s) => [s.node, s]));
-  const shown = trace && trace.length ? [...new Set(trace.map((s) => s.node))] : STAGES;
-  return `<div class="pipeline">${shown.map((node, i) => {
-    const stage = done.get(node);
-    const took = stage ? `<span class="took">${Math.round(stage.ms)}ms</span>` : "";
-    // A hop that ran more than once says so, rather than appearing once and lying.
-    const times = (trace || []).filter((s) => s.node === node).length;
-    return `${i ? '<span class="arrow">→</span>' : ""}
-      <span class="stage ${stage ? "on" : running ? "running" : ""}">
-        <span class="bead"></span>${esc(node)}${times > 1 ? ` ×${times}` : ""}${took}
-      </span>`;
-  }).join("")}${total}</div>`;
+  return `<div class="pipeline stack">
+    <div class="pipehead"><span class="section">Agents that ran</span>${total}</div>
+    ${waterfall(trace, seconds)}</div>`;
 }
 
 /* --- asking --------------------------------------------------------------- */
