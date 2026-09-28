@@ -38,7 +38,13 @@ from src.agents.synthesizer import synthesize_node  # noqa: E402
 from src.agents.verifier import verify_node  # noqa: E402
 from src.api.main import create_app, load_user  # noqa: E402
 from src.config import get_settings  # noqa: E402
+from src.api.auth import issue_token  # noqa: E402
 from src.llm.factory import get_chat_model  # noqa: E402
+
+
+def _as(user_id: int) -> dict[str, str]:
+    """The eval signs in like anything else — /query has no other way in."""
+    return {"Authorization": f"Bearer {issue_token(user_id)}"}
 
 RUNS_PER_QUESTION = 10
 CANDIDATE_DEADLINES = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 8.0]
@@ -118,7 +124,7 @@ def main() -> int:
     client = TestClient(create_app(nodes=nodes, user_loader=load_user, refusal_deadline=deadline))
 
     for _ in range(2):  # load model weights before anything is timed
-        client.post("/query", json={"query": "warm up", "user_id": 1})
+        client.post("/query", json={"query": "warm up"}, headers=_as(1))
 
     schedule = [q for q in QUESTIONS for _ in range(RUNS_PER_QUESTION)]
     random.Random(7).shuffle(schedule)  # interleave, so drift can't favour one class
@@ -127,7 +133,7 @@ def main() -> int:
     for i, question in enumerate(schedule, 1):
         before = len(final_states)
         started = time.perf_counter()
-        response = client.post("/query", json={"query": question, "user_id": 1})
+        response = client.post("/query", json={"query": question}, headers=_as(1))
         elapsed = time.perf_counter() - started
         state = final_states[before] if len(final_states) > before else {}
         samples.append({

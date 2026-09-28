@@ -17,6 +17,7 @@ from src.graph.state import (
     UserContext,
     VerificationResult,
 )
+from tests.helpers import as_user
 
 
 @pytest.fixture(autouse=True)
@@ -66,7 +67,7 @@ def _client(**overrides) -> TestClient:
 
 
 def test_answers_a_permitted_question_with_citations():
-    r = _client().post("/query", json={"query": "How long to contest a chargeback?", "user_id": 1})
+    r = _client().post("/query", json={"query": "How long to contest a chargeback?"}, headers=as_user(1))
     assert r.status_code == 200
     body = r.json()
     assert body["text"] == "45 days."
@@ -88,7 +89,7 @@ def test_refusal_body_contains_no_reason():
                 )
             ],
         }
-    ).post("/query", json={"query": "What triggers an AML escalation?", "user_id": 1})
+    ).post("/query", json={"query": "What triggers an AML escalation?"}, headers=as_user(1))
 
     assert r.status_code == 200
     body = r.json()
@@ -102,22 +103,29 @@ def test_refusal_body_contains_no_reason():
 
 
 def test_caller_cannot_supply_its_own_role_or_clearance():
-    """Accepting these from the body would walk straight past the §1 filter."""
+    """Accepting any of these from the body would walk straight past the §1 filter.
+
+    `user_id` is on this list now too: it was a real field until the caller came from
+    a signed token, and it was never checked against anything."""
     r = _client().post(
         "/query",
         json={"query": "anything", "user_id": 1, "role": "compliance", "clearance_level": 1},
+        headers=as_user(1),
     )
     assert r.status_code == 422
 
 
-def test_unknown_user_is_rejected():
+def test_a_token_naming_nobody_is_rejected_without_saying_so():
+    """401, not 404. A 404 answered the question "does user 999 exist?", which is a
+    free account enumeration for anyone holding any valid signing key."""
     app = create_app(nodes=_nodes(), user_loader=lambda uid: None)
-    r = TestClient(app).post("/query", json={"query": "anything", "user_id": 999})
-    assert r.status_code == 404
+    r = TestClient(app).post("/query", json={"query": "anything"}, headers=as_user(999))
+    assert r.status_code == 401
+    assert "999" not in r.text and "user" not in r.json()["detail"].lower()
 
 
 def test_empty_query_is_rejected():
-    assert _client().post("/query", json={"query": "", "user_id": 1}).status_code == 422
+    assert _client().post("/query", json={"query": ""}, headers=as_user(1)).status_code == 422
 
 
 def test_identity_used_downstream_is_the_loaded_one_not_the_request():
@@ -130,7 +138,7 @@ def test_identity_used_downstream_is_the_loaded_one_not_the_request():
     client = TestClient(
         create_app(nodes=_nodes(router=capture), user_loader=lambda uid: ALEX)
     )
-    client.post("/query", json={"query": "anything", "user_id": 1})
+    client.post("/query", json={"query": "anything"}, headers=as_user(1))
     assert seen["user"].role == "support"
     assert seen["user"].acl_tags() == ["support", "support", "all-staff"]
 

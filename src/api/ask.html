@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Internal Brain</title>
 <link rel="stylesheet" href="/ui/app.css">
+<script src="/ui/app.js"></script>
 </head>
 <body>
 
@@ -36,14 +37,7 @@
         <button id="mode-one" type="button" role="tab" aria-selected="true">One caller</button>
         <button id="mode-two" type="button" role="tab" aria-selected="false">Side by side</button>
       </div>
-      <div>
-        <label class="label" for="uid">Asking as</label>
-        <input id="uid" name="uid" type="number" min="1" value="1" inputmode="numeric">
-      </div>
-      <div id="second" hidden>
-        <label class="label" for="uid2">and</label>
-        <input id="uid2" type="number" min="1" value="2" inputmode="numeric">
-      </div>
+      <span class="asking" id="asking"></span>
       <button id="go" type="submit">Ask</button>
       <div class="readout" id="clock" hidden>
         <span class="big" id="elapsed">0.00</span><span class="unit">seconds</span>
@@ -76,41 +70,31 @@
 
 <script>
 const $ = (id) => document.getElementById(id);
+// Nothing below runs until somebody is signed in.
+if (!IB.start()) { throw new Error("signed out"); }
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) =>
   ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
 /* --- theme ---------------------------------------------------------------- */
-try {
-  const saved = localStorage.getItem("ib-theme");
-  if (saved) document.documentElement.dataset.theme = saved;
-} catch (_) {}
-$("theme").addEventListener("click", () => {
-  const root = document.documentElement;
-  const dark = root.dataset.theme
-    ? root.dataset.theme === "dark"
-    : matchMedia("(prefers-color-scheme: dark)").matches;
-  root.dataset.theme = dark ? "light" : "dark";
-  try { localStorage.setItem("ib-theme", root.dataset.theme); } catch (_) {}
-});
 
 /* --- demo questions -------------------------------------------------------
    Ids rather than names on purpose: the page never enumerates who exists.
    The middle pair is the whole demo — same question, two callers.          */
+// One entry per question. The AML one used to appear twice, once per caller — the
+// caller is whoever is signed in now, so the pair read as a duplicate. Side by side
+// is how you ask it as two people.
 const SAMPLES = [
-  [1, "How long do customers have to contest a chargeback?"],
-  [1, "What triggers an AML escalation review?"],
-  [2, "What triggers an AML escalation review?"],
-  [1, "How many transactions were flagged for AML in August?"],
-  [1, "What is our parental leave policy?"],
+  "How long do customers have to contest a chargeback?",
+  "What triggers an AML escalation review?",
+  "How many transactions were flagged for AML in August?",
+  "What is our parental leave policy?",
 ];
-$("chips").innerHTML = SAMPLES.map(([uid, q], i) =>
-  `<button class="chip" type="button" data-i="${i}"><b>${uid}</b> &nbsp;${esc(q)}</button>`).join("");
+$("chips").innerHTML = SAMPLES.map((q, i) =>
+  `<button class="chip" type="button" data-i="${i}">${esc(q)}</button>`).join("");
 $("chips").addEventListener("click", (e) => {
   const chip = e.target.closest(".chip");
   if (!chip) return;
-  const [uid, q] = SAMPLES[chip.dataset.i];
-  $("uid").value = uid;
-  $("q").value = q;
+  $("q").value = SAMPLES[chip.dataset.i];
   ask();
 });
 
@@ -207,10 +191,12 @@ function renderAnswer(reply, seconds, { bare = false } = {}) {
 // One request, measured. Everything below composes this.
 async function run(uid, query) {
   const began = performance.now();
-  const response = await fetch("/query", {
+  // `as: uid` sends THAT person's token. Nothing here asks on anyone's behalf —
+  // showing what two people see means holding two people's tokens.
+  const response = await IB.api("/query", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ user_id: uid, query }),
+    as: uid,
+    body: JSON.stringify({ query }),
   });
   const seconds = (performance.now() - began) / 1000;
   if (!response.ok) {
@@ -262,13 +248,24 @@ function finding(a, b) {
 
   if (refusedA !== refusedB) {
     const held = refusedA ? a : b;
+    const took = held.result.seconds;
+    // Say what the clock says. Claiming the deadline held while the number beside it
+    // says otherwise discredits the one property the whole project rests on — the
+    // same mistake this page already made once, in renderAnswer.
+    const timing = took <= DEADLINE + 0.6
+      ? `The refusal took <b>${took.toFixed(2)}s</b>, held to the ${DEADLINE.toFixed(1)}s
+         deadline, so its timing says no more than its wording does. Without that padding a
+         permission refusal returns in about 0.9s, and timing alone would tell caller
+         ${esc(held.uid)} that something exists here.`
+      : `The refusal took <b>${took.toFixed(2)}s</b> and so ran <b>past</b> the
+         ${DEADLINE.toFixed(1)}s deadline — padding holds a refusal until the deadline but
+         cannot pull it back, and that overshoot is the residual leak
+         <code>evals/refusal_timing.py</code> measures. It reports 0% on an idle machine; a
+         cold model or a loaded laptop is the usual cause.`;
     return `<div class="finding"><span class="lead">One question. Two truths. One clock.</span>
       Caller ${esc(held.uid)} was refused and caller ${esc(refusedA ? b.uid : a.uid)} was answered,
       from the same corpus at the same moment — the filter ran in the database before either
-      reached the model. The refusal took <b>${held.result.seconds.toFixed(2)}s</b>, held to the
-      ${DEADLINE.toFixed(1)}s deadline, so its timing says no more than its wording does.
-      Without that padding a permission refusal returns in about 0.9s, and timing alone would
-      tell caller ${esc(held.uid)} that something exists here.</div>`;
+      reached the model. ${timing}</div>`;
   }
   if (refusedA && refusedB) {
     return `<div class="finding"><span class="lead">Both refused, and indistinguishably so.</span>
@@ -292,7 +289,7 @@ async function ask() {
 
   try {
     if (!comparing) {
-      const { reply, seconds } = await run(Number($("uid").value), query);
+      const { reply, seconds } = await run(IB.active(), query);
       stop();
       $("out").innerHTML = renderAnswer(reply, seconds);
       return;
@@ -301,7 +298,7 @@ async function ask() {
     // Sequential, not parallel. One model serves one request at a time, so two in
     // flight would queue and the second one's clock would show the wait rather than
     // the work — and on a screen whose whole point is timing, that is a lie.
-    const uidA = Number($("uid").value), uidB = Number($("uid2").value);
+    const [uidA, uidB] = IB.signedIn();
     const a = { uid: uidA, result: await run(uidA, query) };
     const b = { uid: uidB, result: await run(uidB, query) };
     stop();
@@ -318,14 +315,27 @@ async function ask() {
   }
 }
 
+function describeIdentities() {
+  const held = IB.signedIn();
+  const comparing = $("mode-two").getAttribute("aria-selected") === "true";
+  $("go").textContent = comparing ? "Ask both" : "Ask";
+  $("go").disabled = comparing && held.length < 2;
+  $("asking").innerHTML = comparing
+    ? (held.length >= 2
+        ? `as <b>user ${IB.esc(held[0])}</b> and <b>user ${IB.esc(held[1])}</b>`
+        : `<span style="color:var(--caution)">Add a second identity to compare —
+           you can only show what someone sees if you can sign in as them.</span>`)
+    : `as <b>user ${IB.esc(IB.active())}</b>`;
+}
+
 for (const [id, on] of [["mode-one", false], ["mode-two", true]]) {
   $(id).addEventListener("click", () => {
     $("mode-one").setAttribute("aria-selected", String(!on));
     $("mode-two").setAttribute("aria-selected", String(on));
-    $("second").hidden = !on;
-    $("go").textContent = on ? "Ask both" : "Ask";
+    describeIdentities();
   });
 }
+describeIdentities();
 
 $("form").addEventListener("submit", (e) => { e.preventDefault(); ask(); });
 $("q").addEventListener("keydown", (e) => {

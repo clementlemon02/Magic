@@ -23,6 +23,7 @@ from src.graph.state import (
     VerificationResult,
 )
 from src.llm.fake import FakeChatModel
+from tests.helpers import as_user
 
 ALEX = UserContext(id=1, role="support", dept="support", clearance_level=0)
 MARCUS = UserContext(id=2, role="compliance", dept="compliance", clearance_level=1)
@@ -108,7 +109,7 @@ def test_the_explanation_never_reaches_the_asker_through_the_real_node():
         "audit": lambda s: {"audit_events": []},
     }
     r = TestClient(create_app(nodes=nodes, user_loader=lambda uid: ALEX)).post(
-        "/query", json={"query": "What triggers an AML escalation review?", "user_id": 1}
+        "/query", json={"query": "What triggers an AML escalation review?"}, headers=as_user(1)
     )
     assert r.json() == {"text": GENERIC_REFUSAL, "citations": []}
 
@@ -210,13 +211,21 @@ def _client(user):
          {"user_id": 1, "source_platform": "confluence", "source_ref": "x"}),
     ],
 )
-@pytest.mark.parametrize("caller", [ALEX, None], ids=["not-an-officer", "unknown-user"])
-def test_only_a_compliance_officer_reaches_compliance_routes(method, path, body, caller):
-    client, headers = _client(caller), {"X-User-Id": "1"}
+# Two different refusals now, and the difference is the point: a signed-in person who
+# is not an officer is told so (403), while a token naming nobody is not told whether
+# that account exists (401).
+@pytest.mark.parametrize(
+    ("caller", "expected"),
+    [(ALEX, 403), (None, 401)],
+    ids=["not-an-officer", "unknown-user"],
+)
+def test_only_a_compliance_officer_reaches_compliance_routes(method, path, body, caller, expected):
+    client, headers = _client(caller), as_user(1)
     r = client.post(path, headers=headers, json=body) if body else client.get(path, headers=headers)
-    assert r.status_code == 403
+    assert r.status_code == expected
+    assert r.status_code != 200
 
 
 def test_a_malformed_request_id_is_rejected_before_the_database():
-    r = _client(MARCUS).get("/audit/not-a-uuid", headers={"X-User-Id": "2"})
+    r = _client(MARCUS).get("/audit/not-a-uuid", headers=as_user(2))
     assert r.status_code == 422

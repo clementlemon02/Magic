@@ -143,16 +143,20 @@ def _explanation_from(request_id: str, events: list[AuditEvent]) -> ComplianceEx
     )
 
 
-def build_router(user_loader: Callable, connect: Callable = audit._connect) -> APIRouter:
+def build_router(
+    user_loader: Callable, connect: Callable = audit._connect, *, officer: Callable | None = None
+) -> APIRouter:
+    """`officer` comes from src/api/auth.py, so one place decides who an officer is.
+
+    The fallback below exists only for a caller that builds this router on its own;
+    create_app always passes the real one.
+    """
     router = APIRouter()
 
-    def officer(x_user_id: int = Header()) -> UserContext:
-        user = user_loader(x_user_id)
-        # Same answer for an unknown id and a non-officer: this is not a way to probe
-        # which user ids exist.
-        if user is None or user.role != COMPLIANCE_ROLE:
-            raise HTTPException(status_code=403, detail="Compliance role required")
-        return user
+    if officer is None:  # pragma: no cover - create_app always supplies it
+        from src.api.auth import build_dependencies
+
+        _, officer = build_dependencies(user_loader)
 
     def record(conn, user: UserContext, event_type: str, payload: dict) -> None:
         event = AuditEvent(event_type=event_type, payload=payload, occurred_at=datetime.now(UTC))

@@ -205,6 +205,24 @@ class SourceConnector(Protocol):
 again at query time for restricted documents, via `source_denies`, to close the mirror's staleness
 window. `src/connectors/__init__.py` holds the one platform → connector registry; don't build another.
 
+## 4a. Authentication — `src/api/auth.py`
+
+Every route that reads or changes anything takes a signed bearer token. The token carries ONE
+claim, the subject; **role, department and clearance are read from `users`/`roles` on every
+request**, so a token cannot assert a role and walk past the §1 predicate. That is the same rule
+§1 states for retrieval, applied to identity.
+
+- `POST /auth/login` (email + password, scrypt) issues it; `build_dependencies` yields `caller`
+  and `officer`, and `officer` checks the role on the **database row**, never the token.
+- A missing, malformed, expired or re-signed token, and a token naming a user who no longer
+  exists, are all one 401 — none of them says which, so this is not an account oracle.
+- The envelope for constant-time refusal opens in middleware, BEFORE the auth dependency runs:
+  authentication hits the database, its duration varies, and a variable step outside the padding
+  is exactly what the padding exists to hide.
+- Demo scope, stated rather than implied: no refresh, no revocation list, no rotation.
+  `AUTH_SECRET` is a committed demo key and `AUTH_TOKEN_TTL_MINUTES` is what bounds the damage.
+  `caller` is the seam to swap for a real identity provider.
+
 ## 5. Two-tier refusal contract
 
 ```python
@@ -246,8 +264,9 @@ and flags the first row whose `row_hash` doesn't match (`python -m src.agents.au
 - Python modules: `snake_case.py`, one agent per file under `src/agents/`.
 - Branches: `retrieval/*`, `orchestration/*`, `audit/*` — matches the three workstreams (§8).
 - Env vars: `SCREAMING_SNAKE_CASE`, declared in `.env.example` before use, never hardcoded.
-- API routes: `POST /query`, `GET /audit/{request_id}`, `GET /audit/recent`, `GET /knowledge-gaps`,
-  `GET /access-gaps`, `GET /admin/sources`, `GET /admin/permissions`, admin revoke under
+- API routes: `POST /auth/login`, `GET /auth/me`, `POST /query`, `GET /audit/{request_id}`,
+  `GET /audit/recent`, `GET /audit/verify`, `GET /knowledge-gaps`, `GET /access-gaps`,
+  `GET /admin/sources`, `GET /admin/permissions`, admin revoke under
   `POST /admin/permissions/revoke`. Pages: `/` ask, `/dashboard` gaps, `/audit`, `/sources`.
 - Prompt constants: `PROMPT_TEMPLATE` (module-level, in the agent's own file), examples in
   `<agent>_examples.py` as `EXAMPLES`.

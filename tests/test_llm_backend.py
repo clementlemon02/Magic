@@ -53,3 +53,16 @@ def test_unrecognised_prompt_raises_rather_than_guessing():
     """A reworded PROMPT_TEMPLATE should break the fake loudly, not silently mis-answer."""
     with pytest.raises(UnknownPrompt):
         FakeChatModel().invoke("some prompt this fake has never seen")
+
+
+def test_the_chat_model_stays_resident_between_questions(monkeypatch):
+    """Ollama unloads an idle model after 5 minutes, so the question asked after any
+    pause in a demo pays the reload — measured at 5.8s on a refusal whose deadline is
+    4.0s, which is an escape on the property being demonstrated."""
+    monkeypatch.setenv("LLM_BACKEND", "ollama")
+    monkeypatch.setenv("OLLAMA_KEEP_ALIVE", "45m")
+    get_chat_model.cache_clear()
+    try:
+        assert get_chat_model().keep_alive == "45m"
+    finally:
+        get_chat_model.cache_clear()

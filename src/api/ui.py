@@ -19,6 +19,7 @@ from fastapi.responses import HTMLResponse, Response
 
 PAGES = {name: Path(__file__).with_name(f"{name}.html") for name in ("ask", "dashboard", "audit", "sources")}
 STYLESHEET = Path(__file__).with_name("static") / "app.css"
+SCRIPT = Path(__file__).with_name("static") / "app.js"
 
 
 def build_router() -> APIRouter:
@@ -44,6 +45,10 @@ def build_router() -> APIRouter:
     @router.get("/sources", response_class=HTMLResponse, include_in_schema=False)
     def sources() -> HTMLResponse:
         return page("sources")
+
+    @router.get("/ui/app.js", include_in_schema=False)
+    def script() -> Response:
+        return Response(SCRIPT.read_text(encoding="utf-8"), media_type="text/javascript")
 
     @router.get("/ui/app.css", include_in_schema=False)
     def stylesheet() -> Response:

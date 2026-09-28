@@ -20,6 +20,7 @@ import sys
 
 from fastapi.testclient import TestClient
 
+from src.api.auth import issue_token
 from src.api.main import create_app
 
 # (user_id, question). Personas from scripts/seed_users.sql.
@@ -42,7 +43,10 @@ def main() -> int:
         return 1
 
     for index, (user_id, question) in enumerate(ASKS, start=1):
-        response = client.post("/query", json={"user_id": user_id, "query": question})
+        response = client.post(
+            "/query", json={"query": question},
+            headers={"Authorization": f"Bearer {issue_token(user_id)}"},
+        )
         if response.status_code != 200:
             print(f"  {index}/{len(ASKS)} user {user_id}: HTTP {response.status_code}")
             continue

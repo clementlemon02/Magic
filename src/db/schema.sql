@@ -14,7 +14,10 @@ CREATE TABLE users (
     name     TEXT NOT NULL,
     email    TEXT UNIQUE NOT NULL,
     role_id  INTEGER REFERENCES roles(id),
-    dept     TEXT NOT NULL
+    dept     TEXT NOT NULL,
+    -- scrypt$<salt>$<hash>, src/api/auth.py. NULL means this account cannot sign in,
+    -- which is how a seeded identity exists before anyone gives it a password.
+    password_hash TEXT
 );
 
 -- Source-of-truth for authorization decisions. Always re-checked at query time — never cached

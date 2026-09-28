@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Sources and grants</title>
 <link rel="stylesheet" href="/ui/app.css">
+<script src="/ui/app.js"></script>
 </head>
 <body>
 
@@ -29,10 +30,6 @@
   <div class="panel" style="margin-bottom:22px">
     <div class="controls">
       <div>
-        <label class="label" for="uid">Acting as</label>
-        <input id="uid" type="number" min="1" value="2" inputmode="numeric">
-      </div>
-      <div>
         <label class="label" for="subject">Grants for user</label>
         <input id="subject" type="number" min="1" value="2" inputmode="numeric">
       </div>
@@ -48,24 +45,13 @@
 
 <script>
 const $ = (id) => document.getElementById(id);
+// Nothing below runs until somebody is signed in.
+if (!IB.start()) { throw new Error("signed out"); }
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) =>
   ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
-try {
-  const saved = localStorage.getItem("ib-theme");
-  if (saved) document.documentElement.dataset.theme = saved;
-} catch (_) {}
-$("theme").addEventListener("click", () => {
-  const root = document.documentElement;
-  const dark = root.dataset.theme
-    ? root.dataset.theme === "dark"
-    : matchMedia("(prefers-color-scheme: dark)").matches;
-  root.dataset.theme = dark ? "light" : "dark";
-  try { localStorage.setItem("ib-theme", root.dataset.theme); } catch (_) {}
-});
 
-const headers = () => ({ "X-User-Id": $("uid").value });
-const forbidden = () => `<div class="note alert"><b>User ${esc($("uid").value)} is not a
+const forbidden = () => `<div class="note alert"><b>User ${esc(IB.active())} is not a
   compliance officer.</b> Connecting a source and changing who may read it are officer
   actions. Try user 2 or 7.</div>`;
 
@@ -80,7 +66,7 @@ const ago = (iso) => {
 
 async function loadSources() {
   $("sources").innerHTML = `<div class="note">Loading…</div>`;
-  const response = await fetch("/admin/sources", { headers: headers() }).catch(() => null);
+  const response = await IB.api("/admin/sources", {}).catch(() => null);
   if (!response) { $("sources").innerHTML = `<div class="note alert"><b>Cannot reach the API.</b></div>`; return; }
   if (response.status === 403) { $("sources").innerHTML = forbidden(); return; }
   const sources = await response.json();
@@ -117,8 +103,8 @@ async function loadSources() {
 async function loadGrants() {
   $("grants").innerHTML = `<div class="note">Loading…</div>`;
   const subject = $("subject").value;
-  const response = await fetch(`/admin/permissions?user_id=${encodeURIComponent(subject)}`,
-    { headers: headers() }).catch(() => null);
+  const response = await IB.api(`/admin/permissions?user_id=${encodeURIComponent(subject)}`,
+    {}).catch(() => null);
   if (!response) { $("grants").innerHTML = `<div class="note alert"><b>Cannot reach the API.</b></div>`; return; }
   if (response.status === 403) { $("grants").innerHTML = forbidden(); return; }
   const grants = await response.json();
@@ -149,9 +135,9 @@ $("grants").addEventListener("click", async (e) => {
   const revoking = button.dataset.action === "revoke";
   button.disabled = true;
   button.textContent = revoking ? "Revoking…" : "Granting…";
-  const response = await fetch(`/admin/permissions/${revoking ? "revoke" : "grant"}`, {
+  const response = await IB.api(`/admin/permissions/${revoking ? "revoke" : "grant"}`, {
     method: "POST",
-    headers: { ...headers(), "Content-Type": "application/json" },
+    headers: {},
     body: JSON.stringify({
       user_id: Number($("subject").value),
       source_platform: button.dataset.platform,
@@ -171,7 +157,7 @@ $("grants").addEventListener("click", async (e) => {
 
 function load() { loadSources(); loadGrants(); }
 $("go").addEventListener("click", load);
-for (const id of ["uid", "subject"]) {
+for (const id of ["subject"]) {
   $(id).addEventListener("keydown", (e) => { if (e.key === "Enter") load(); });
 }
 load();

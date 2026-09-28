@@ -38,12 +38,27 @@ def test_the_page_embeds_no_report_data():
         "compliance-alerts",
     ):
         assert restricted_ref not in page
-    assert "fetch(" in page  # it asks for the data at runtime instead
+    assert "IB.api(" in page  # it asks for the data at runtime instead
 
 
-def test_the_page_sends_the_caller_identity_header():
-    """Without X-User-Id the report route cannot tell who is asking, and 403s."""
-    assert "X-User-Id" in PAGES["dashboard"].read_text(encoding="utf-8")
+def test_no_page_calls_fetch_directly():
+    """One door to the API, so a header can only be forgotten in one place.
+
+    Stronger than the assertion this replaced, which checked that the page sent an
+    X-User-Id header — a header any client could set, and the reason none of this
+    was authentication."""
+    for name, page in PAGES.items():
+        assert "fetch(" not in page.read_text(encoding="utf-8"), f"{name} bypasses IB.api"
+
+
+def test_the_one_door_attaches_the_token():
+    from src.api.ui import SCRIPT
+
+    script = SCRIPT.read_text(encoding="utf-8")
+    assert "Bearer ${token}" in script
+    # A 401 means the token is no good; keeping it would fail every later call in
+    # the same silent way.
+    assert "if (response.status === 401)" in script
 
 
 def test_dashboard_route_is_hidden_from_the_api_schema():
@@ -122,7 +137,7 @@ def test_the_audit_page_is_served_and_carries_no_trail_of_its_own():
     assert "<title>Audit trail" in response.text
     page = PAGES["audit"].read_text(encoding="utf-8")
     # Everything it shows arrives from the two gated routes at runtime.
-    assert "/audit/recent" in page and "fetch(" in page
+    assert "/audit/recent" in page and "IB.api(" in page
     for leak in ("COMPLIANCE/aml-escalation", "Withheld:", "file-aml-evidence"):
         assert leak not in page
 
@@ -223,3 +238,22 @@ def test_the_comparison_draws_the_deadline_to_scale():
     page = PAGES["ask"].read_text(encoding="utf-8")
     assert "const DEADLINE = 4.0;" in page and "const SCALE = 8.0;" in page
     assert "(DEADLINE / SCALE) * 100" in page, "the marker must sit at its true position"
+
+
+def test_the_shared_script_is_not_deferred():
+    """Each page's inline script uses IB at parse time. `defer` runs app.js after
+    those, so every page threw "IB is not defined" and rendered unwired markup — the
+    sign-in gate never appeared and the API was never called."""
+    for name, page in PAGES.items():
+        html = page.read_text(encoding="utf-8")
+        assert '<script src="/ui/app.js"></script>' in html, name
+        assert "app.js\" defer" not in html and "app.js\" async" not in html, name
+
+
+def test_the_comparison_never_claims_a_deadline_the_clock_contradicts():
+    """A refusal that ran long escaped. Saying it was held, beside a number that says
+    otherwise, discredits the property the project rests on — and this page made that
+    mistake twice: once in renderAnswer, once in the side-by-side copy."""
+    page = PAGES["ask"].read_text(encoding="utf-8")
+    assert "took <= DEADLINE + 0.6" in page
+    assert "ran <b>past</b> the" in page

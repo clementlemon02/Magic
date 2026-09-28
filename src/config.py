@@ -85,6 +85,20 @@ class Settings(BaseSettings):
     # is the one someone else asks. Off in tests (conftest.py) — every create_app would
     # otherwise reach for a model.
     warm_on_startup: bool = True
+    # How long Ollama keeps the model resident between requests. Its own default is
+    # 5 minutes, so any pause in a demo unloads it and the next request pays the
+    # reload — measured at 5.8s on a refusal whose deadline is 4.0s, which turns the
+    # constant-time guarantee into an escape for exactly the question someone asks
+    # after a conversation. Warming at startup does not help a model that has since
+    # been unloaded.
+    ollama_keep_alive: str = "30m"
+
+    # Signing key for the bearer token (src/api/auth.py). The default is a DEMO key
+    # and is in the repository on purpose, so a fresh clone runs; set AUTH_SECRET to
+    # anything else before this is reachable by someone you did not invite, because
+    # whoever holds it can mint a token for any user id.
+    auth_secret: str = "demo-only-change-me"
+    auth_token_ttl_minutes: int = 720  # a working day, then sign in again
 
     api_host: str = "0.0.0.0"
     api_port: int = 8000
