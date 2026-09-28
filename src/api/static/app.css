@@ -205,13 +205,18 @@ button.ghost[aria-selected="true"] {
 .source { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline;
           padding: 7px 0; }
 .source + .source { border-top: 1px solid var(--line); }
+.source > .copy:last-child { margin-left: auto; }
 .ref { font: 400 12.5px/1.4 var(--mono); color: var(--ink); word-break: break-all; }
 .ref .plat { color: var(--faint); }
 .source .title { color: var(--muted); font-size: 13.5px; }
+/* One container, so every row's buttons share an edge however long its title is.
+   margin-left:auto on each button instead pushed only the LAST one right, and the
+   others landed wherever the title happened to end. */
+.source .actions { margin-left: auto; display: flex; gap: 6px; flex-shrink: 0; }
 .copy {
-  margin-left: auto; font: 500 11px/1 var(--mono); padding: 4px 7px;
-  background: transparent; color: var(--faint); border: 1px solid var(--line);
-  border-radius: 5px;
+  font: 500 11px/1 var(--mono); padding: 5px 8px;
+  background: transparent; color: var(--muted); border: 1px solid var(--line);
+  border-radius: 5px; white-space: nowrap;
 }
 .copy:hover { color: var(--ink); filter: none; }
 
@@ -330,6 +335,28 @@ tbody tr:hover { background: var(--surface); }
 /* The ACL line is the point of showing the query at all. */
 .evidence pre .acl { display: block; background: color-mix(in srgb, var(--clear) 15%, transparent); }
 .evidence .why { margin: 9px 0 0; font-size: 12.5px; line-height: 1.55; color: var(--muted); }
+
+/* --- the ask form, where the question is the task ------------------------- */
+
+.panel.ask { display: flex; flex-direction: column; gap: 10px; }
+.panel.ask textarea { font-size: 16.5px; line-height: 1.5; min-height: 0; padding: 12px 14px; }
+.panel.ask .controls { gap: 12px 16px; align-items: flex-end; }
+.panel.ask .readout { margin-left: auto; }
+
+.try { margin-top: 16px; }
+.try .label { margin-bottom: 9px; }
+
+.awaiting { color: var(--muted); }
+.awaiting ul { margin: 12px 0 0; padding: 0; list-style: none; max-width: 68ch; }
+.awaiting li {
+  position: relative; padding: 0 0 0 20px; margin-bottom: 10px;
+  font-size: 14px; line-height: 1.6;
+}
+.awaiting li::before {
+  content: ""; position: absolute; left: 4px; top: 9px;
+  width: 5px; height: 5px; border-radius: 50%; background: var(--line);
+}
+.awaiting b { color: var(--ink); font-weight: 500; }
 
 @media (prefers-reduced-motion: reduce) {
   * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }

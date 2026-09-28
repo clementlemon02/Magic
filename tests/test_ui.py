@@ -150,3 +150,26 @@ def test_the_ask_page_escapes_a_query_before_marking_it():
     print the tag as text."""
     page = PAGES["ask"].read_text(encoding="utf-8")
     assert "esc(sql).split" in page
+
+
+def test_every_page_carries_the_same_navigation():
+    """Four pages built one at a time drifted into four different navs: the gaps page
+    had neither Audit nor Sources, so a reader could reach them only by typing a URL."""
+    import re
+
+    navs = {}
+    for name, page in PAGES.items():
+        nav = re.search(r"<nav>(.*?)</nav>", page.read_text(encoding="utf-8"), re.S).group(1)
+        navs[name] = sorted(re.findall(r'href="([^"]+)"', nav))
+    expected = ["/", "/audit", "/dashboard", "/sources"]
+    for name, links in navs.items():
+        assert links == expected, f"{name} links to {links}"
+
+
+def test_each_page_marks_itself_as_the_current_one():
+    import re
+
+    for name, path in (("ask", "/"), ("dashboard", "/dashboard"),
+                       ("audit", "/audit"), ("sources", "/sources")):
+        nav = re.search(r"<nav>(.*?)</nav>", PAGES[name].read_text(encoding="utf-8"), re.S).group(1)
+        assert f'href="{path}" aria-current="page"' in nav, name

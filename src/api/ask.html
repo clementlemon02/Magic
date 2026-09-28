@@ -21,33 +21,49 @@
 </header>
 
 <main class="page">
-  <h1>Ask across every source at once</h1>
-  <p class="lede">Confluence, Jira, Slack and Drive. You only ever see what your own
-    permissions allow — the filter runs in the database, before any of it reaches the model.</p>
+  <h1>Ask</h1>
+  <p class="lede">Confluence, Jira, Slack and Drive, in one question. You only ever see
+    what your own permissions allow — the filter runs in the database, before any of it
+    reaches the model.</p>
 
-  <form class="panel" id="form">
-    <div class="grow">
-      <label class="label" for="q">Question</label>
-      <textarea id="q" name="q" spellcheck="false"
-        placeholder="How long do customers have to contest a chargeback?"></textarea>
-    </div>
+  <form class="panel ask" id="form">
+    <label class="label" for="q">Question</label>
+    <textarea id="q" name="q" rows="2" spellcheck="false"
+      placeholder="How long do customers have to contest a chargeback?"></textarea>
 
-    <div class="controls" style="margin-top:14px">
+    <div class="controls">
       <div>
         <label class="label" for="uid">Asking as</label>
         <input id="uid" name="uid" type="number" min="1" value="1" inputmode="numeric">
       </div>
       <button id="go" type="submit">Ask</button>
-      <div class="spacer" style="margin-left:auto"></div>
       <div class="readout" id="clock" hidden>
         <span class="big" id="elapsed">0.00</span><span class="unit">seconds</span>
       </div>
     </div>
-
-    <div class="chips" id="chips"></div>
   </form>
 
-  <section class="result" id="out" aria-live="polite"></section>
+  <div class="try">
+    <span class="label">Try one</span>
+    <div class="chips" id="chips"></div>
+  </div>
+
+  <section class="result" id="out" aria-live="polite">
+    <!-- Replaced by the first answer. An empty page teaches a first-time reader
+         nothing about what this does, and there is nothing real to show until
+         someone asks. -->
+    <div class="awaiting">
+      <span class="label">What comes back</span>
+      <ul>
+        <li><b>An answer, or one refusal.</b> Every refusal is the same sentence and
+          takes the same time, so neither the words nor the clock says why.</li>
+        <li><b>The sources behind it</b> — open one to read the passage the wording came
+          from, or the query that counted the rows.</li>
+        <li><b>How long it took.</b> A refusal is held to a fixed deadline; an answer
+          is not.</li>
+      </ul>
+    </div>
+  </section>
 </main>
 
 <script>
@@ -129,9 +145,11 @@ function renderAnswer(reply, seconds) {
         <div class="source">
           <span class="ref"><span class="plat">${esc(c.source_platform)}:</span>${esc(c.source_ref)}</span>
           <span class="title">${esc(c.title)}</span>
-          ${evidence ? `<button class="copy" type="button" data-peek="${i}">Show ${
-            c.query ? "query" : "passage"}</button>` : ""}
-          <button class="copy" type="button" data-ref="${esc(c.source_platform)}:${esc(c.source_ref)}">Copy</button>
+          <span class="actions">
+            ${evidence ? `<button class="copy" type="button" data-peek="${i}">Show ${
+              c.query ? "query" : "passage"}</button>` : ""}
+            <button class="copy" type="button" data-ref="${esc(c.source_platform)}:${esc(c.source_ref)}">Copy</button>
+          </span>
         </div>
         ${evidence ? `<div class="evidence" id="peek-${i}" hidden>${
           c.query
