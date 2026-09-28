@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sources and grants</title>
+<link rel="stylesheet" href="/ui/app.css">
+</head>
+<body>
+
+<header class="bar">
+  <span class="brand"><span class="dot"></span>Internal Brain <small>Aurelia</small></span>
+  <nav>
+    <a href="/">Ask</a>
+    <a href="/dashboard">Gaps</a>
+    <a href="/audit">Audit</a>
+    <a href="/sources" aria-current="page">Sources</a>
+  </nav>
+  <span class="spacer"></span>
+  <button class="icon-button" id="theme" type="button" aria-label="Switch theme" title="Switch theme">◐</button>
+</header>
+
+<main class="page wide">
+  <h1>Sources and grants</h1>
+  <p class="lede">One workspace authorization per source, run by IT. Nobody else connects
+    anything — the same connection reads the content and the permission model that decides
+    who may see it.</p>
+
+  <div class="panel" style="margin-bottom:22px">
+    <div class="controls">
+      <div>
+        <label class="label" for="uid">Acting as</label>
+        <input id="uid" type="number" min="1" value="2" inputmode="numeric">
+      </div>
+      <div>
+        <label class="label" for="subject">Grants for user</label>
+        <input id="subject" type="number" min="1" value="2" inputmode="numeric">
+      </div>
+      <button id="go" type="button">Load</button>
+    </div>
+  </div>
+
+  <div class="split">
+    <div class="detail" id="sources"></div>
+    <div class="worklist" id="grants" style="width:420px"></div>
+  </div>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) =>
+  ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+try {
+  const saved = localStorage.getItem("ib-theme");
+  if (saved) document.documentElement.dataset.theme = saved;
+} catch (_) {}
+$("theme").addEventListener("click", () => {
+  const root = document.documentElement;
+  const dark = root.dataset.theme
+    ? root.dataset.theme === "dark"
+    : matchMedia("(prefers-color-scheme: dark)").matches;
+  root.dataset.theme = dark ? "light" : "dark";
+  try { localStorage.setItem("ib-theme", root.dataset.theme); } catch (_) {}
+});
+
+const headers = () => ({ "X-User-Id": $("uid").value });
+const forbidden = () => `<div class="note alert"><b>User ${esc($("uid").value)} is not a
+  compliance officer.</b> Connecting a source and changing who may read it are officer
+  actions. Try user 2 or 7.</div>`;
+
+const ago = (iso) => {
+  if (!iso) return "never";
+  const minutes = Math.round((Date.now() - new Date(iso)) / 60000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes} min ago`;
+  const hours = Math.round(minutes / 60);
+  return hours < 48 ? `${hours}h ago` : `${Math.round(hours / 24)} days ago`;
+};
+
+async function loadSources() {
+  $("sources").innerHTML = `<div class="note">Loading…</div>`;
+  const response = await fetch("/admin/sources", { headers: headers() }).catch(() => null);
+  if (!response) { $("sources").innerHTML = `<div class="note alert"><b>Cannot reach the API.</b></div>`; return; }
+  if (response.status === 403) { $("sources").innerHTML = forbidden(); return; }
+  const sources = await response.json();
+  // Stale is a judgement about freshness, so it is drawn, not just stated: the
+  // permissions table is a mirror of each source's ACLs and only as fresh as this.
+  const stale = (iso) => !iso || (Date.now() - new Date(iso)) > 24 * 3600 * 1000;
+  $("sources").innerHTML = sources.map((s) => `
+    <div class="panel" style="margin-bottom:12px">
+      <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+        <span style="display:grid;place-items:center;width:34px;height:34px;border-radius:8px;
+          background:var(--raised);font:500 13px var(--mono)">${esc(s.platform[0].toUpperCase())}</span>
+        <div style="flex-grow:1;min-width:0">
+          <div style="font-size:15.5px;font-weight:500;text-transform:capitalize">${esc(s.platform)}</div>
+          <div style="font:400 12px var(--mono);color:var(--muted);margin-top:3px">
+            ${s.documents} documents · ${s.chunks} chunks · ${s.grants} grants</div>
+        </div>
+        ${s.restricted ? `<span class="tag restricted">${s.restricted} restricted</span>` : ""}
+        <span class="tag ${stale(s.last_ingested) ? "" : "clear"}"
+          style="${stale(s.last_ingested) ? "color:var(--caution)" : ""}">
+          ${stale(s.last_ingested) ? "stale" : "connected"}</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:16px;margin-top:12px;padding-top:11px;
+        border-top:1px solid var(--line);font-size:12.5px;color:var(--muted)">
+        <span>Ingested ${esc(ago(s.last_ingested))}</span>
+        <span class="spacer" style="margin-left:auto"></span>
+        <span style="font-family:var(--mono);font-size:11.5px">python -m scripts.seed_demo</span>
+      </div>
+    </div>`).join("") + `
+    <div class="note">Restricted documents are re-checked against the source at question
+      time, so a revocation upstream takes effect before the next answer. Everything else
+      rides on this mirror.</div>`;
+}
+
+async function loadGrants() {
+  $("grants").innerHTML = `<div class="note">Loading…</div>`;
+  const subject = $("subject").value;
+  const response = await fetch(`/admin/permissions?user_id=${encodeURIComponent(subject)}`,
+    { headers: headers() }).catch(() => null);
+  if (!response) { $("grants").innerHTML = `<div class="note alert"><b>Cannot reach the API.</b></div>`; return; }
+  if (response.status === 403) { $("grants").innerHTML = forbidden(); return; }
+  const grants = await response.json();
+  if (!grants.length) {
+    $("grants").innerHTML = `<div class="note">User ${esc(subject)} holds no live grants.</div>`;
+    return;
+  }
+  $("grants").innerHTML = `
+    <div class="panel">
+      <span class="label">Live grants · user ${esc(subject)}</span>
+      <p style="margin:0 0 14px;font-size:13px;line-height:1.55;color:var(--muted)">
+        Revoking takes effect on the next question: retrieval joins this table, and the
+        answer cache is keyed on the grant set.</p>
+      ${grants.map((g) => `
+        <div class="source">
+          <span class="ref"><span class="plat">${esc(g.source_platform)}:</span>${esc(g.source_ref)}</span>
+          ${g.sensitivity === "restricted" ? '<span class="tag restricted">restricted</span>' : ""}
+          <button class="copy" type="button" style="color:var(--withheld)"
+            data-platform="${esc(g.source_platform)}" data-ref="${esc(g.source_ref)}"
+            data-action="revoke">Revoke</button>
+        </div>`).join("")}
+    </div>`;
+}
+
+$("grants").addEventListener("click", async (e) => {
+  const button = e.target.closest("button[data-action]");
+  if (!button) return;
+  const revoking = button.dataset.action === "revoke";
+  button.disabled = true;
+  button.textContent = revoking ? "Revoking…" : "Granting…";
+  const response = await fetch(`/admin/permissions/${revoking ? "revoke" : "grant"}`, {
+    method: "POST",
+    headers: { ...headers(), "Content-Type": "application/json" },
+    body: JSON.stringify({
+      user_id: Number($("subject").value),
+      source_platform: button.dataset.platform,
+      source_ref: button.dataset.ref,
+    }),
+  }).catch(() => null);
+  if (!response || !response.ok) {
+    button.disabled = false;
+    button.textContent = revoking ? "Revoke" : "Grant";
+    return;
+  }
+  // Re-read rather than patch the row: the table is the truth, and the whole point
+  // of this screen is that the next question reads the same table.
+  loadGrants();
+  loadSources();
+});
+
+function load() { loadSources(); loadGrants(); }
+$("go").addEventListener("click", load);
+for (const id of ["uid", "subject"]) {
+  $(id).addEventListener("keydown", (e) => { if (e.key === "Enter") load(); });
+}
+load();
+</script>
+</body>
+</html>

@@ -11,6 +11,7 @@ and a template cannot opt out of it.
 
 import json
 import re
+from textwrap import dedent
 from datetime import date, timedelta
 
 from src.graph.state import Citation, GraphState, UserContext
@@ -84,6 +85,9 @@ Question: {query}
 JSON:"""
 
 _FENCE = re.compile(r"^```(?:json)?\s*|\s*```$", re.MULTILINE)
+
+# The one line every template shares for optional department scoping.
+_DEPT_GUARD = re.compile(r"\n\s*AND \(%\(dept\)s::text IS NULL OR account_dept = %\(dept\)s\)")
 
 
 def _catalogue() -> str:
@@ -239,7 +243,41 @@ def answers_from_query_alone(chunks, sql_result) -> bool:
     return not chunks and _is_structured(sql_result)
 
 
-def result_citation(result) -> Citation | None:
+def display_sql(result, acl_tags: list[str] | None = None) -> str | None:
+    """The template with this request's values written in, FOR READING ONLY.
+
+    What ran was the template verbatim with every value bound by the driver — see
+    `run_query`, where the model supplies a template NAME and parameters and never a
+    fragment of SQL. This builds a copy with the values substituted so a person can
+    see which rows were counted and under whose tags, and it is never executed.
+
+    The `acl_tags` line is the §1 filter: the reason two callers asking the same
+    question get different numbers, and the thing worth showing someone.
+    """
+    if not _is_structured(result):
+        return None
+    # _period, not params["dept"]: an absent department arrives as the STRING "None"
+    # from the model's JSON, which is truthy and would print `account_dept = 'None'`.
+    start, last_day, dept = _period(result)
+    # Dedent FIRST: dedent takes the common leading whitespace, so a line written in
+    # afterwards at a different indent would leave every other line over-indented.
+    sql = dedent(TEMPLATES[result["template"]]["sql"].strip("\n")).strip()
+
+    # The department guard exists so one template serves both cases. Substituted
+    # literally it reads `(NULL IS NULL OR account_dept = NULL)`, which is noise at
+    # best and looks broken at worst, so the display collapses it to what it means.
+    sql = _DEPT_GUARD.sub("" if dept is None else f"\n  AND account_dept = '{dept}'", sql)
+
+    for placeholder, value in {
+        "%(start)s": f"'{start}'",
+        "%(end)s": f"'{result['params']['end']}'",
+        "%(acl_tags)s": "ARRAY[" + ", ".join(f"'{t}'" for t in (acl_tags or [])) + "]",
+    }.items():
+        sql = sql.replace(placeholder, value)
+    return sql
+
+
+def result_citation(result, acl_tags: list[str] | None = None) -> Citation | None:
     """Cite the query itself, so a number on screen can be re-run and checked."""
     if not _is_structured(result):
         return None
@@ -250,6 +288,7 @@ def result_citation(result) -> Citation | None:
         title=f"Transactions: {TEMPLATES[result['template']]['describes']} ({start} to {last_day})",
         source_platform="internal",
         source_ref=ref + (f"&dept={dept}" if dept else ""),
+        query=display_sql(result, acl_tags),
     )
 
 

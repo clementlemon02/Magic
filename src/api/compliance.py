@@ -58,12 +58,59 @@ class RequestSummary(BaseModel):
     reason: str | None
 
 
+class SourceStatus(BaseModel):
+    """One connector, as the admin screen shows it."""
+
+    platform: SourcePlatform
+    documents: int
+    chunks: int
+    restricted: int
+    grants: int
+    last_ingested: datetime | None
+
+
+class Grant(BaseModel):
+    source_platform: SourcePlatform
+    source_ref: str
+    sensitivity: str | None
+    granted_at: datetime
+
+
 class ChainStatus(BaseModel):
     ok: bool
     rows_checked: int
     first_bad_id: int | None = None
     problem: str | None = None
 
+
+SOURCES_SQL = """
+    SELECT d.source_platform,
+           count(DISTINCT d.id)                                             AS documents,
+           count(c.id)                                                      AS chunks,
+           count(DISTINCT d.id) FILTER (WHERE d.sensitivity = 'restricted') AS restricted,
+           max(d.created_at)                                                AS last_ingested
+    FROM documents AS d
+    LEFT JOIN document_chunks AS c ON c.document_id = d.id
+    GROUP BY d.source_platform
+    ORDER BY d.source_platform
+"""
+
+GRANT_COUNTS_SQL = """
+    SELECT source_platform, count(*) AS grants
+    FROM permissions WHERE revoked_at IS NULL
+    GROUP BY source_platform
+"""
+
+# A person's live grants. Sensitivity comes from the document, so the screen can warn
+# before someone revokes the one thing an officer actually needs.
+GRANTS_FOR_SQL = """
+    SELECT p.source_platform, p.source_ref, d.sensitivity, p.granted_at
+    FROM permissions AS p
+    LEFT JOIN documents AS d
+      ON d.source_platform = p.source_platform AND d.source_ref = p.source_ref
+    WHERE p.user_id = %(user_id)s AND p.revoked_at IS NULL
+    ORDER BY d.sensitivity DESC NULLS LAST, p.source_platform, p.source_ref
+"""
 
 REVOKE_SQL = """
     UPDATE permissions SET revoked_at = now()
@@ -146,6 +193,35 @@ def build_router(user_loader: Callable, connect: Callable = audit._connect) -> A
             changed = conn.execute(sql, body.model_dump()).rowcount
             record(conn, user, event_type, {**body.model_dump(), "changed": changed})
         return changed
+
+    @router.get("/admin/sources", response_model=list[SourceStatus])
+    async def sources(user: UserContext = Depends(officer)):
+        def read() -> list[SourceStatus]:
+            with connect() as conn:
+                rows = conn.execute(SOURCES_SQL).fetchall()
+                counts = dict(conn.execute(GRANT_COUNTS_SQL).fetchall())
+            return [
+                SourceStatus(
+                    platform=platform, documents=documents, chunks=chunks,
+                    restricted=restricted, grants=counts.get(platform, 0),
+                    last_ingested=last_ingested,
+                )
+                for platform, documents, chunks, restricted, last_ingested in rows
+            ]
+
+        return await run_in_threadpool(read)
+
+    @router.get("/admin/permissions", response_model=list[Grant])
+    async def grants(user_id: int, user: UserContext = Depends(officer)):
+        def read() -> list[Grant]:
+            with connect() as conn:
+                rows = conn.execute(GRANTS_FOR_SQL, {"user_id": user_id}).fetchall()
+            return [
+                Grant(source_platform=p, source_ref=r, sensitivity=s, granted_at=g)
+                for p, r, s, g in rows
+            ]
+
+        return await run_in_threadpool(read)
 
     @router.post("/admin/permissions/revoke", response_model=PermissionChangeResult)
     async def revoke(body: PermissionChange, user: UserContext = Depends(officer)):

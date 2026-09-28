@@ -249,3 +249,41 @@ def test_the_deterministic_path_needs_a_query_and_no_chunks():
     assert answers_from_query_alone([], result) is True
     assert answers_from_query_alone([], None) is False
     assert answers_from_query_alone(["a chunk"], result) is False
+
+
+# --- the query a citation stands for -------------------------------------------
+
+def test_display_sql_writes_the_callers_tags_into_the_predicate():
+    """The §1 line is the reason two callers get different numbers, so it is the line
+    the screen exists to show."""
+    from src.agents.sql_tool import display_sql
+
+    sql = display_sql(_result("count_flagged_aml", [{"flagged_count": 3}]),
+                      ["support", "support", "all-staff"])
+    assert "acl_tags && ARRAY['support', 'support', 'all-staff']" in sql
+    assert "%(" not in sql, "every placeholder should be written in"
+
+
+def test_display_sql_drops_the_department_guard_when_there_is_no_department():
+    """Substituted literally it reads `(NULL IS NULL OR account_dept = NULL)` — noise
+    at best, broken-looking at worst. An absent dept arrives as the STRING "None"."""
+    from src.agents.sql_tool import display_sql
+
+    sql = display_sql(_result("count_transactions", [{"transaction_count": 9}], dept="None"), [])
+    assert "account_dept" not in sql
+    assert "IS NULL" not in sql
+
+
+def test_display_sql_states_a_department_plainly_when_there_is_one():
+    from src.agents.sql_tool import display_sql
+
+    sql = display_sql(_result("count_transactions", [{"transaction_count": 9}], dept="support"), [])
+    assert "AND account_dept = 'support'" in sql
+
+
+def test_display_sql_is_dedented_so_it_reads_as_code():
+    from src.agents.sql_tool import display_sql
+
+    sql = display_sql(_result("sum_amount", [{"total_amount": 1, "currency": "SGD"}]), [])
+    assert sql.startswith("SELECT"), sql
+    assert not any(line.startswith("        ") for line in sql.splitlines())

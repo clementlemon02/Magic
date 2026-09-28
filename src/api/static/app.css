@@ -316,6 +316,21 @@ tbody tr:hover { background: var(--surface); }
 }
 .warded .label { color: var(--caution); }
 
+/* --- evidence behind a citation ------------------------------------------- */
+
+.evidence { margin: 2px 0 10px; }
+.evidence .passage {
+  margin: 0; padding: 13px 15px; background: var(--ground); border-radius: 7px;
+  font-size: 14px; line-height: 1.62;
+}
+.evidence pre {
+  margin: 0; padding: 13px 15px; background: var(--ground); border-radius: 7px;
+  font: 400 12.5px/1.75 var(--mono); overflow-x: auto; white-space: pre;
+}
+/* The ACL line is the point of showing the query at all. */
+.evidence pre .acl { display: block; background: color-mix(in srgb, var(--clear) 15%, transparent); }
+.evidence .why { margin: 9px 0 0; font-size: 12.5px; line-height: 1.55; color: var(--muted); }
+
 @media (prefers-reduced-motion: reduce) {
   * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }

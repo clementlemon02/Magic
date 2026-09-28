@@ -218,6 +218,11 @@ def build_audit_explanation(request_id: str) -> ComplianceExplanation:
     ...
 ```
 
+A `Citation` may carry the evidence behind it — `passage` for a chunk, `query` for the SQL that
+counted the rows — so an asker can check an answer instead of trusting it. That is safe on `Citation`
+and would not be on `AskerResponse`: `build_response` gives a refusal `AskerResponse(text=GENERIC_REFUSAL)`
+and nothing else, so `citations` is empty on every refusal and neither field has a path out on one.
+
 `state.explanation` must never appear in an `AskerResponse`. If you're tempted to add detail to the
 asker-facing refusal "to be more helpful," don't — that's the exact failure mode the brief's negative
 case tests for.
@@ -241,8 +246,9 @@ and flags the first row whose `row_hash` doesn't match (`python -m src.agents.au
 - Python modules: `snake_case.py`, one agent per file under `src/agents/`.
 - Branches: `retrieval/*`, `orchestration/*`, `audit/*` — matches the three workstreams (§8).
 - Env vars: `SCREAMING_SNAKE_CASE`, declared in `.env.example` before use, never hardcoded.
-- API routes: `POST /query`, `GET /audit/{request_id}`, `GET /audit/recent`, `GET /knowledge-gaps`, `GET /access-gaps`,
-  admin revoke under `POST /admin/permissions/revoke`.
+- API routes: `POST /query`, `GET /audit/{request_id}`, `GET /audit/recent`, `GET /knowledge-gaps`,
+  `GET /access-gaps`, `GET /admin/sources`, `GET /admin/permissions`, admin revoke under
+  `POST /admin/permissions/revoke`. Pages: `/` ask, `/dashboard` gaps, `/audit`, `/sources`.
 - Prompt constants: `PROMPT_TEMPLATE` (module-level, in the agent's own file), examples in
   `<agent>_examples.py` as `EXAMPLES`.
 

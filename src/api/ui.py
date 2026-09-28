@@ -17,7 +17,7 @@ from pathlib import Path
 from fastapi import APIRouter
 from fastapi.responses import HTMLResponse, Response
 
-PAGES = {name: Path(__file__).with_name(f"{name}.html") for name in ("ask", "dashboard", "audit")}
+PAGES = {name: Path(__file__).with_name(f"{name}.html") for name in ("ask", "dashboard", "audit", "sources")}
 STYLESHEET = Path(__file__).with_name("static") / "app.css"
 
 
@@ -40,6 +40,10 @@ def build_router() -> APIRouter:
     def audit() -> HTMLResponse:
         # The page is inert like the others; /audit/recent and /audit/{id} are the gates.
         return page("audit")
+
+    @router.get("/sources", response_class=HTMLResponse, include_in_schema=False)
+    def sources() -> HTMLResponse:
+        return page("sources")
 
     @router.get("/ui/app.css", include_in_schema=False)
     def stylesheet() -> Response:

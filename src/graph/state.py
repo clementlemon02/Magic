@@ -82,6 +82,17 @@ class Citation(BaseModel):
     source_platform: SourcePlatform
     source_ref: str
 
+    # What actually backs the claim, so an asker can check the answer instead of
+    # trusting it: the passage the wording came from, or the query that counted it.
+    #
+    # Safe here and NOT on AskerResponse, which §5 keeps unable to carry anything:
+    # `build_response` gives a refusal `AskerResponse(text=GENERIC_REFUSAL)` and
+    # nothing else, so `citations` is empty on every refusal and there is no path
+    # for either field to ride out on one. Both hold material the caller has already
+    # been shown in summary — every chunk reaching here passed the §1 filter.
+    passage: str | None = None
+    query: str | None = None
+
 
 class Chunk(BaseModel):
     """An ACL-filtered chunk. Only chunks the caller may see are ever built."""

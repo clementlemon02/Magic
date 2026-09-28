@@ -132,3 +132,21 @@ def test_small_labels_meet_contrast():
     from src.api.ui import STYLESHEET
 
     assert "#8b98a2" not in STYLESHEET.read_text(encoding="utf-8")
+
+
+def test_a_refusal_can_carry_no_evidence():
+    """§5 structurally: build_response gives a refusal GENERIC_REFUSAL and nothing
+    else, so `citations` is empty and neither passage nor query has a path out."""
+    from src.graph.graph import build_response
+    from src.graph.state import GENERIC_REFUSAL
+
+    reply = build_response({"escalated": True, "final_answer": "leak", "citations": ["x"]})
+    assert reply.text == GENERIC_REFUSAL
+    assert reply.citations == []
+
+
+def test_the_ask_page_escapes_a_query_before_marking_it():
+    """Marking the ACL line before escaping would put the span through esc() and
+    print the tag as text."""
+    page = PAGES["ask"].read_text(encoding="utf-8")
+    assert "esc(sql).split" in page

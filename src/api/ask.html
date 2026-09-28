@@ -12,7 +12,9 @@
   <span class="brand"><span class="dot"></span>Internal Brain <small>Aurelia</small></span>
   <nav>
     <a href="/" aria-current="page">Ask</a>
-    <a href="/dashboard">Compliance</a>
+    <a href="/dashboard">Gaps</a>
+    <a href="/audit">Audit</a>
+    <a href="/sources">Sources</a>
   </nav>
   <span class="spacer"></span>
   <button class="icon-button" id="theme" type="button" aria-label="Switch theme" title="Switch theme">◐</button>
@@ -107,17 +109,41 @@ function startClock() {
   };
 }
 
+// Escape first, then mark the one line worth looking at. Marking before escaping
+// would put the tag through esc() and print it.
+function highlightAcl(sql) {
+  return esc(sql).split("\n").map((line) =>
+    line.includes("acl_tags") ? `<span class="acl">${line}</span>` : line).join("\n");
+}
+
 function renderAnswer(reply, seconds) {
   const withheld = reply.text.startsWith(REFUSAL);
+  // Each citation can show what actually backs it: the passage the wording came
+  // from, or the query that counted the rows. Checking beats trusting.
   const sources = reply.citations.length ? `
     <div class="sources">
       <span class="label">Sources</span>
-      ${reply.citations.map((c) => `
+      ${reply.citations.map((c, i) => {
+        const evidence = c.passage || c.query;
+        return `
         <div class="source">
           <span class="ref"><span class="plat">${esc(c.source_platform)}:</span>${esc(c.source_ref)}</span>
           <span class="title">${esc(c.title)}</span>
+          ${evidence ? `<button class="copy" type="button" data-peek="${i}">Show ${
+            c.query ? "query" : "passage"}</button>` : ""}
           <button class="copy" type="button" data-ref="${esc(c.source_platform)}:${esc(c.source_ref)}">Copy</button>
-        </div>`).join("")}
+        </div>
+        ${evidence ? `<div class="evidence" id="peek-${i}" hidden>${
+          c.query
+            ? `<pre>${highlightAcl(c.query)}</pre>
+               <p class="why">The highlighted predicate is the access control. It runs
+                 inside the query, before ranking and before anything reaches a model —
+                 which is why two people asking this get different numbers. Shown with
+                 values written in; what ran was the template with every value bound by
+                 the driver.</p>`
+            : `<p class="passage">${esc(c.passage)}</p>`
+        }</div>` : ""}`;
+      }).join("")}
     </div>` : "";
 
   // Timing is content here, not chrome: a refusal held to the deadline is the
@@ -194,7 +220,16 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "/" && document.activeElement !== $("q")) { e.preventDefault(); $("q").focus(); }
 });
 $("out").addEventListener("click", async (e) => {
-  const button = e.target.closest(".copy");
+  const peek = e.target.closest("[data-peek]");
+  if (peek) {
+    const box = $(`peek-${peek.dataset.peek}`);
+    box.hidden = !box.hidden;
+    peek.textContent = box.hidden
+      ? peek.textContent.replace("Hide", "Show")
+      : peek.textContent.replace("Show", "Hide");
+    return;
+  }
+  const button = e.target.closest(".copy[data-ref]");
   if (!button) return;
   try {
     await navigator.clipboard.writeText(button.dataset.ref);
