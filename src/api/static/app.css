@@ -461,6 +461,65 @@ nav a.locked::after {
 .asking { font-size: 13.5px; color: var(--muted); align-self: center; }
 .asking b { color: var(--ink); font-weight: 500; }
 
+/* --- the thread ----------------------------------------------------------- */
+
+/* The composer is sticky, so it renders OVER whatever flows beneath it. The thread
+   ends with its height in padding, or the last answer sits behind the input box.
+   --composer-h is measured in ask.html: the chips wrap at phone width, so a fixed
+   number here is wrong on exactly the screen where overlap is worst. */
+.thread {
+  display: flex; flex-direction: column; gap: 26px;
+  padding-bottom: calc(var(--composer-h, 180px) + 20px);
+}
+.turn { scroll-margin-bottom: calc(var(--composer-h, 180px) + 20px); }
+.turn { display: flex; flex-direction: column; gap: 10px; }
+.turn.mine { align-items: flex-end; }
+.bubble {
+  max-width: 72ch; padding: 12px 16px; border-radius: var(--r-surface);
+  background: var(--raised); font-size: 15.5px; line-height: 1.55;
+}
+.turn.mine .bubble { background: var(--accent); color: var(--accent-ink); }
+
+/* The composer sits at the bottom of the window, where a chat's input belongs. */
+.composer {
+  position: sticky; bottom: 0; padding: 14px 0 calc(14px + env(safe-area-inset-bottom, 0px));
+  background: linear-gradient(to top, var(--ground) 72%, transparent);
+}
+.composer .panel { display: flex; flex-direction: column; gap: 10px; }
+.composer textarea { min-height: 0; font-size: 16px; }
+
+/* --- the pipeline --------------------------------------------------------- */
+/* Replayed from the response's own trace, never streamed: a stage arriving live
+   would let anyone reconstruct why a refusal happened from its shape alone. */
+
+.pipeline { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.stage {
+  display: inline-flex; align-items: center; gap: 7px; padding: 5px 10px;
+  border-radius: var(--r-pill); background: var(--surface);
+  font: 400 12px/1 var(--mono); color: var(--faint);
+  opacity: .45; transition: opacity .2s ease, color .2s ease;
+}
+.stage.on { opacity: 1; color: var(--ink); }
+.stage.withheld { opacity: 1; color: var(--muted); }
+.stage.withheld .bead { background: var(--withheld); }
+.stage.on .bead { background: var(--clear); }
+.stage .bead {
+  width: 6px; height: 6px; border-radius: 50%; background: var(--line); flex-shrink: 0;
+}
+.stage .took { color: var(--muted); font-variant-numeric: tabular-nums; }
+/* In flight, every stage is pending: the pipeline cannot be streamed, so which one
+   is running now is deliberately unknown here. Show the path, clearly waiting. */
+.stage.running { opacity: .85; color: var(--muted); }
+.stage.running .bead { background: var(--accent); animation: pulse 1s ease-in-out infinite; }
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .25; } }
+.pipeline .arrow { color: var(--line); font-size: 11px; }
+.pipeline .cache-why { color: var(--faint); font-size: 12px; }
+.pipeline .total {
+  margin-left: auto; font: 400 12px/1 var(--mono); color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+@media (prefers-reduced-motion: reduce) { .stage.running .bead { animation: none; } }
+
 .finding .lead { display: block; font-family: var(--display); font-size: 19px; font-weight: 600;
                  color: var(--ink); margin-bottom: 8px; letter-spacing: -0.012em; }
 

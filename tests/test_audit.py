@@ -111,7 +111,9 @@ def test_the_explanation_never_reaches_the_asker_through_the_real_node():
     r = TestClient(create_app(nodes=nodes, user_loader=lambda uid: ALEX)).post(
         "/query", json={"query": "What triggers an AML escalation review?"}, headers=as_user(1)
     )
-    assert r.json() == {"text": GENERIC_REFUSAL, "citations": []}
+    # Exact, not a subset: a field added to AskerResponse has to be considered here
+    # before it can ride out on a refusal. `trace` is empty on every one of them.
+    assert r.json() == {"text": GENERIC_REFUSAL, "citations": [], "trace": []}
 
 
 # --- The trail ----------------------------------------------------------------

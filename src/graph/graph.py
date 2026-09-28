@@ -13,7 +13,13 @@ from datetime import UTC, datetime
 from langgraph.graph import END, START, StateGraph
 
 from src.config import get_settings
-from src.graph.state import GENERIC_REFUSAL, AskerResponse, AuditEvent, GraphState
+from src.graph.state import (
+    GENERIC_REFUSAL,
+    AskerResponse,
+    AuditEvent,
+    GraphState,
+    Stage,
+)
 
 Node = Callable[[GraphState], dict]
 
@@ -42,12 +48,21 @@ def answer_node(state: GraphState) -> dict:
 
 
 def build_response(state: GraphState) -> AskerResponse:
-    """State to the asker-facing payload (§5). Called at the API boundary."""
+    """State to the asker-facing payload (§5). Called at the API boundary.
+
+    The refusal branch constructs GENERIC_REFUSAL and nothing else. That is the whole
+    contract: anything added to AskerResponse can only ever reach an answer.
+    """
     if state.get("escalated"):
         return AskerResponse(text=GENERIC_REFUSAL)
     return AskerResponse(
         text=state.get("final_answer") or "",
         citations=state.get("citations") or [],
+        trace=[
+            Stage(node=e.payload["node"], hop=e.payload["hop"], ms=e.payload["ms"])
+            for e in (state.get("audit_events") or [])
+            if e.event_type == "node_transition"
+        ],
     )
 
 

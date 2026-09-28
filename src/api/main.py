@@ -29,7 +29,7 @@ from src.api.ui import build_router as build_ui_router
 from src.cache import PermissionAwareCache
 from src.config import get_settings
 from src.graph.graph import build_graph, build_response
-from src.graph.state import AskerResponse, AuditEvent, GraphState, UserContext
+from src.graph.state import AskerResponse, AuditEvent, GraphState, Stage, UserContext
 
 
 class QueryRequest(BaseModel):
@@ -386,7 +386,13 @@ def create_app(
                     )],
                 }
                 await run_in_threadpool(nodes["audit"], hit)
-                return cached
+                # Replace the trace, never pass the cached one through: it describes
+                # the request that filled the cache, not this one, and the UI would
+                # show seconds of retrieval and synthesis that did not happen. One
+                # stage for what actually ran.
+                return cached.model_copy(update={
+                    "trace": [Stage(node="cache", hop=0, ms=(clock() - started) * 1000)]
+                })
 
         state = await run_in_threadpool(graph.invoke, initial_state(request.query, user))
         # build_response is the only thing that shapes the reply: it cannot carry

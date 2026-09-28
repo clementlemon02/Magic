@@ -161,6 +161,14 @@ class GraphState(TypedDict):
     audit_events: list[AuditEvent]
 
 
+class Stage(BaseModel):
+    """One node the graph ran, and how long it took."""
+
+    node: str
+    hop: int
+    ms: float
+
+
 class AskerResponse(BaseModel):
     """Everything the asker is allowed to see.
 
@@ -173,6 +181,18 @@ class AskerResponse(BaseModel):
 
     text: str
     citations: list[Citation] = Field(default_factory=list)
+
+    # What the graph did, for the asker to watch it work. Answers only, and for the
+    # same reason citations are: `build_response` gives a refusal GENERIC_REFUSAL and
+    # nothing else, so this is empty on every refusal by construction.
+    #
+    # It must stay that way. A trace on a refusal reconstructs the cause the wording
+    # withholds — a permission conflict short-circuits at retrieval on hop 1, an
+    # unsupported answer grinds through three — which is the same leak that made the
+    # refusal constant-time in the first place. Streaming these live would leak it
+    # too, over the network rather than in the payload; the UI replays them after the
+    # response instead, so the clock outside is unchanged.
+    trace: list[Stage] = Field(default_factory=list)
 
 
 class ComplianceExplanation(BaseModel):

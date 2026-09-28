@@ -274,3 +274,16 @@ def test_the_comparison_never_claims_a_deadline_the_clock_contradicts():
     page = PAGES["ask"].read_text(encoding="utf-8")
     assert "took <= DEADLINE + 0.6" in page
     assert "ran <b>past</b> the" in page
+
+
+def test_the_clock_owns_its_own_interval():
+    """Two clocks must not share one id. `ticking` used to live at module scope, so
+    the second question's startClock overwrote it and the first question's stop()
+    cleared the SECOND interval — the first ticked on forever, writing an unrelated
+    number into the one readout on the page. It showed 49.08s beside a refusal that
+    had in fact been held at 4.0s, which is the page's central claim inverted by a
+    stale timer rather than by wrong copy: the two tests above check the copy, and
+    both passed while the number beside it was nonsense."""
+    page = PAGES["ask"].read_text(encoding="utf-8")
+    assert "let ticking" not in page, "the interval id is shared between clocks again"
+    assert "let tick = null;" in page and "clearInterval(tick)" in page
