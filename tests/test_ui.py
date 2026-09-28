@@ -173,3 +173,36 @@ def test_each_page_marks_itself_as_the_current_one():
                        ("audit", "/audit"), ("sources", "/sources")):
         nav = re.search(r"<nav>(.*?)</nav>", PAGES[name].read_text(encoding="utf-8"), re.S).group(1)
         assert f'href="{path}" aria-current="page"' in nav, name
+
+
+def _rule(css: str, selector: str) -> str:
+    """One declaration block. Slicing a fixed number of characters instead runs into
+    whatever rule follows — which is how the first version of this test 'found' a
+    border on .panel that belonged to the inputs below it."""
+    start = css.index(selector + " {")
+    return css[start: css.index("}", start)]
+
+
+def test_the_radius_scale_is_three_tokens_not_a_value_per_component():
+    """Eight literal radii were the most generated-looking thing in the sheet: a
+    system nobody decided. Components take a token now."""
+    import re
+    from src.api.ui import STYLESHEET
+
+    css = STYLESHEET.read_text(encoding="utf-8")
+    assert set(re.findall(r"--r-(control|surface|pill):", css)) == {"control", "surface", "pill"}
+    # A circle is not a corner, and an explicit 0 is a decision rather than a stray value.
+    literals = {v for v in re.findall(r"border-radius: ([^;]+);", css) if "var(--r-" not in v}
+    assert literals <= {"50%", "0"}, f"literal radii left: {sorted(literals)}"
+
+
+def test_only_what_earns_an_edge_keeps_one():
+    """Nine bordered cards competed and nothing led. The answer and the officer-only
+    explanation keep a border; a control panel and a list row do not."""
+    from src.api.ui import STYLESHEET
+
+    css = STYLESHEET.read_text(encoding="utf-8")
+    assert "border: 1px solid" not in _rule(css, ".panel"), "a control panel is chrome"
+    assert "border: 0" in _rule(css, ".request"), "a worklist is a list, not cards"
+    assert "border: 1px solid var(--line)" in _rule(css, ".answer")
+    assert "border: 1px solid var(--line)" in _rule(css, ".warded")

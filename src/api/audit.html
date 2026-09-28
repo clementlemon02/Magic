@@ -134,7 +134,7 @@ function renderDetail(report) {
 
   const conflicts = report.permission_conflicts.length
     ? `<div class="panel" style="margin-bottom:18px">
-         <span class="label">Withheld items</span>
+         <span class="section">Withheld items</span>
          ${report.permission_conflicts.map((c) => `
            <div class="source">
              <span class="ref"><span class="plat">${esc(c.source_platform)}:</span>${esc(c.source_ref)}</span>

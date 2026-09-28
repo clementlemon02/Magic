@@ -44,7 +44,7 @@
   </form>
 
   <div class="try">
-    <span class="label">Try one</span>
+    <span class="section">Try one</span>
     <div class="chips" id="chips"></div>
   </div>
 
@@ -53,7 +53,7 @@
          nothing about what this does, and there is nothing real to show until
          someone asks. -->
     <div class="awaiting">
-      <span class="label">What comes back</span>
+      <span class="section">What comes back</span>
       <ul>
         <li><b>An answer, or one refusal.</b> Every refusal is the same sentence and
           takes the same time, so neither the words nor the clock says why.</li>
@@ -138,7 +138,7 @@ function renderAnswer(reply, seconds) {
   // from, or the query that counted the rows. Checking beats trusting.
   const sources = reply.citations.length ? `
     <div class="sources">
-      <span class="label">Sources</span>
+      <span class="section">Sources</span>
       ${reply.citations.map((c, i) => {
         const evidence = c.passage || c.query;
         return `
