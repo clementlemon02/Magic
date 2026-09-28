@@ -19,3 +19,11 @@ import os
 os.environ.setdefault("REFUSAL_PADDING_ENABLED", "false")
 os.environ.setdefault("QUERY_CACHE_ENABLED", "false")
 os.environ.setdefault("ROUTER_STUDENT_ENABLED", "false")
+
+# Startup warm-up is off for the same reason: create_app runs in most test modules,
+# and each one would otherwise load a 7B model to answer nothing.
+os.environ.setdefault("WARM_ON_STARTUP", "false")
+
+# A fixed signing key, so tests/helpers.py mints tokens the app under test accepts
+# whatever a developer happens to have in their .env.
+os.environ.setdefault("AUTH_SECRET", "test-only-secret")

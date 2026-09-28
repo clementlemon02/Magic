@@ -1,0 +1,53 @@
+name: tests
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+
+    # pgvector rather than plain postgres: src/db/schema.sql declares VECTOR(1024),
+    # which a stock image cannot create.
+    services:
+      db:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: internal_brain
+          POSTGRES_PASSWORD: change-me
+          POSTGRES_DB: internal_brain
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U internal_brain -d internal_brain"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://internal_brain:change-me@localhost:5432/internal_brain
+      # No Ollama on the runner. The fake backend answers from canned strings shaped
+      # like the real thing, so the parsing and routing under test is the same code.
+      LLM_BACKEND: fake
+      # Both off for the same reason conftest.py turns them off: they would reach for
+      # a model or a live fingerprint on tests that are not about either.
+      ROUTER_STUDENT_ENABLED: "false"
+      QUERY_CACHE_ENABLED: "false"
+      RUN_DATABASE_INTEGRATION: "1"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version-file: .python-version
+          cache: pip
+
+      - run: pip install -r requirements.txt
+
+      - name: Create the schema and the personas
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f src/db/schema.sql
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f scripts/seed_users.sql
+
+      # No -q: on a red run the whole report is what tells you why.
+      - run: python -m pytest

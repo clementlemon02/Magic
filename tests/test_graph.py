@@ -247,3 +247,78 @@ def test_hops_continue_while_budget_remains():
     hops, out = _ungrounded_loop(started_at=time.monotonic())
     assert len(hops) == 3  # the fake nodes are instant, so only the hop cap stops it
     assert out["escalated"] is True
+
+
+# --- one row per node transition (§4) ------------------------------------------
+
+def _capturing_audit():
+    """An audit node that keeps what it was handed.
+
+    The fixture's `_audit` returns a fresh list, which is what the real one does too
+    (it returns the assembled trail) — so reading the FINAL state shows only that.
+    What matters is what reached the audit node, since that is what it writes.
+    """
+    seen: dict[str, list] = {"events": []}
+
+    def audit(state) -> dict:
+        seen["events"] = list(state.get("audit_events") or [])
+        return {"audit_events": seen["events"]}
+
+    return audit, seen
+
+
+def _transitions(events) -> list[dict]:
+    return [e.payload for e in events if e.event_type == "node_transition"]
+
+
+def test_every_node_the_graph_ran_leaves_a_row():
+    audit, seen = _capturing_audit()
+    _graph(audit=audit).invoke(_start())
+    ran = [t["node"] for t in _transitions(seen["events"])]
+    assert ran == ["router", "retrieval", "synthesizer", "verifier", "answer"]
+    # `audit` writes the trail, so it can never be a row inside it.
+    assert "audit" not in ran
+
+
+def test_each_hop_of_a_multi_hop_request_is_on_the_record():
+    """The defect this replaced: three hops recorded the last one and a count."""
+    audit, seen = _capturing_audit()
+    _graph(
+        audit=audit,
+        verifier=lambda s: {
+            "verification": VerificationResult(
+                grounded=False, unsupported=["unsupported claim"], confidence=0.9
+            )
+        },
+        retrieval=lambda s: {
+            "hop_count": s.get("hop_count", 0) + 1,
+            "retrieved_chunks": [_chunk(s.get("hop_count", 0))],
+        },
+    ).invoke(_start())
+    hops = [t["hop"] for t in _transitions(seen["events"]) if t["node"] == "retrieval"]
+    assert hops == [1, 2, 3], "every hop should have its own row, not just the last"
+
+
+def test_a_transition_row_carries_its_own_duration():
+    audit, seen = _capturing_audit()
+    _graph(audit=audit).invoke(_start())
+    rows = _transitions(seen["events"])
+    assert rows and all(isinstance(t["ms"], float) and t["ms"] >= 0 for t in rows)
+
+
+def test_a_nodes_own_events_survive_the_recording_wrapper():
+    """Retrieval and Escalation append their own events; the wrapper must add to
+    whatever came back, not replace it."""
+    marker = AuditEvent(
+        event_type="source_recheck_denied", payload={"items": []}, occurred_at=datetime.now(UTC)
+    )
+    audit, seen = _capturing_audit()
+    _graph(
+        audit=audit,
+        retrieval=lambda s: {
+            "hop_count": s.get("hop_count", 0) + 1,
+            "audit_events": [*(s.get("audit_events") or []), marker],
+        },
+    ).invoke(_start())
+    assert marker in seen["events"]
+    assert _transitions(seen["events"]), "the wrapper's own row is still there too"

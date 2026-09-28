@@ -16,6 +16,9 @@ Sensitivity = Literal["internal", "restricted"]
 Route = Literal["rag", "sql", "clarify", "escalate"]
 AuditEventType = Literal[
     "query_received",
+    # One per node the graph ran, written as it ran (§4). The rows below are a
+    # summary of the finished request; these are the request happening.
+    "node_transition",
     "retrieval",
     "sql_executed",
     "draft_answer",
@@ -78,6 +81,17 @@ class Citation(BaseModel):
     title: str
     source_platform: SourcePlatform
     source_ref: str
+
+    # What actually backs the claim, so an asker can check the answer instead of
+    # trusting it: the passage the wording came from, or the query that counted it.
+    #
+    # Safe here and NOT on AskerResponse, which §5 keeps unable to carry anything:
+    # `build_response` gives a refusal `AskerResponse(text=GENERIC_REFUSAL)` and
+    # nothing else, so `citations` is empty on every refusal and there is no path
+    # for either field to ride out on one. Both hold material the caller has already
+    # been shown in summary — every chunk reaching here passed the §1 filter.
+    passage: str | None = None
+    query: str | None = None
 
 
 class Chunk(BaseModel):

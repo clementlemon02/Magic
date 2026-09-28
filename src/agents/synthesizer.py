@@ -91,16 +91,25 @@ def _citations(chunks: list[Chunk], answer: str) -> list[Citation]:
     threshold = max(2, best // 2)
     selected = [c for n, c in scored if n >= threshold] or chunks
 
-    seen: set[int] = set()
+    seen: set[int | None] = set()
     out: list[Citation] = []
     for c in selected:
         if c.citation.document_id not in seen:
             seen.add(c.citation.document_id)
-            out.append(c.citation)
+            # Carry the passage, so the asker can read what the wording came from
+            # rather than take it on trust. `selected` is in retrieval order, so the
+            # first chunk of a document is its best-scoring one.
+            out.append(c.citation.model_copy(update={"passage": c.content}))
     return out
 
 
-def synthesize(query: str, chunks: list[Chunk], sql_result=None, chat_model=None) -> tuple[str | None, list[Citation]]:
+def synthesize(
+    query: str,
+    chunks: list[Chunk],
+    sql_result=None,
+    chat_model=None,
+    acl_tags: list[str] | None = None,
+) -> tuple[str | None, list[Citation]]:
     if chat_model is None:
         from src.llm.factory import get_chat_model
 
@@ -119,7 +128,8 @@ def synthesize(query: str, chunks: list[Chunk], sql_result=None, chat_model=None
         # is why verify_node passes this straight through (CLAUDE.md §4).
         sentence = answer_sentence(sql_result)
         if sentence:
-            citation = result_citation(sql_result)
+            # The caller's own tags, so the predicate on screen is the one that ran.
+            citation = result_citation(sql_result, acl_tags)
             return sentence, [citation] if citation else []
 
     prompt = PROMPT_TEMPLATE.format(evidence=_render_evidence(chunks, sql_result), query=query)
@@ -131,7 +141,7 @@ def synthesize(query: str, chunks: list[Chunk], sql_result=None, chat_model=None
     from src.agents.sql_tool import result_citation
 
     citations = _citations(chunks, text) if chunks else []
-    query_citation = result_citation(sql_result)
+    query_citation = result_citation(sql_result, acl_tags)
     return text, citations + ([query_citation] if query_citation else [])
 
 
@@ -141,5 +151,6 @@ def synthesize_node(state: GraphState, chat_model=None) -> dict:
         state.get("retrieved_chunks") or [],
         sql_result=state.get("sql_result"),
         chat_model=chat_model,
+        acl_tags=state["user"].acl_tags(),
     )
     return {"draft_answer": draft, "citations": citations}

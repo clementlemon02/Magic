@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 from src.api.main import check_llm, create_app, describe_failure
 from src.config import get_settings
 from src.graph.state import GENERIC_REFUSAL, UserContext, VerificationResult
+from tests.helpers import as_user
 
 ALEX = UserContext(id=1, role="support", dept="support", clearance_level=0)
 
@@ -30,8 +31,8 @@ def _nodes(**overrides):
     return base
 
 
-def _client(**overrides) -> TestClient:
-    app = create_app(nodes=_nodes(**overrides), user_loader=lambda uid: ALEX)
+def _client(user_loader=None, **overrides) -> TestClient:
+    app = create_app(nodes=_nodes(**overrides), user_loader=user_loader or (lambda uid: ALEX))
     # The app's own handler must produce the response, not the test client.
     return TestClient(app, raise_server_exceptions=False)
 
@@ -40,7 +41,7 @@ def test_database_fault_is_503_not_a_crash():
     def dies(state):
         raise psycopg.OperationalError("connection to server was lost")
 
-    r = _client(retrieval=dies).post("/query", json={"query": "anything", "user_id": 1})
+    r = _client(retrieval=dies).post("/query", json={"query": "anything"}, headers=as_user(1))
     assert r.status_code == 503
     assert r.json()["detail"] == "The knowledge store is unavailable."
 
@@ -49,7 +50,7 @@ def test_model_timeout_is_503_not_a_crash():
     def dies(state):
         raise TimeoutError("read timed out")
 
-    r = _client(synthesizer=dies).post("/query", json={"query": "anything", "user_id": 1})
+    r = _client(synthesizer=dies).post("/query", json={"query": "anything"}, headers=as_user(1))
     assert r.status_code == 503
     assert "language model" in r.json()["detail"]
 
@@ -60,7 +61,7 @@ def test_unimplemented_node_is_501():
     def pending(state):
         raise NotImplementedError("retrieval node is not implemented yet (Chris)")
 
-    r = _client(retrieval=pending).post("/query", json={"query": "anything", "user_id": 1})
+    r = _client(retrieval=pending).post("/query", json={"query": "anything"}, headers=as_user(1))
     assert r.status_code == 501
 
 
@@ -76,7 +77,7 @@ def test_a_broken_dependency_never_looks_like_a_refusal():
         def dies(state, exc=boom):
             raise exc
 
-        r = _client(retrieval=dies).post("/query", json={"query": "anything", "user_id": 1})
+        r = _client(retrieval=dies).post("/query", json={"query": "anything"}, headers=as_user(1))
         assert r.status_code >= 500
         assert GENERIC_REFUSAL not in r.text
         assert "permitted" not in r.text.lower()
@@ -90,18 +91,18 @@ def test_a_fault_resolving_the_caller_is_handled_too():
 
     app = create_app(nodes=_nodes(), user_loader=dies)
     r = TestClient(app, raise_server_exceptions=False).post(
-        "/query", json={"query": "anything", "user_id": 1}
+        "/query", json={"query": "anything"}, headers=as_user(1)
     )
     assert r.status_code == 503
 
 
-def test_unknown_user_is_still_a_404_not_a_503():
-    """HTTPException must survive the catch-all handler."""
-    app = create_app(nodes=_nodes(), user_loader=lambda uid: None)
-    r = TestClient(app, raise_server_exceptions=False).post(
-        "/query", json={"query": "anything", "user_id": 999}
+def test_a_token_naming_nobody_is_a_401_not_a_503():
+    """An unknown caller is a rejected request, not a broken service — and 401 rather
+    than 404, so it does not confirm which ids exist."""
+    r = _client(user_loader=lambda uid: None).post(
+        "/query", json={"query": "anything"}, headers=as_user(999)
     )
-    assert r.status_code == 404
+    assert r.status_code == 401
 
 
 @pytest.mark.parametrize(
@@ -159,12 +160,12 @@ def test_refusals_are_never_cached():
     )
     client = TestClient(app, raise_server_exceptions=False)
 
-    first = client.post("/query", json={"query": "what triggers aml review", "user_id": 1})
+    first = client.post("/query", json={"query": "what triggers aml review"}, headers=as_user(1))
     assert first.json()["text"] == GENERIC_REFUSAL
     assert cache._entries == [], "a refusal was cached"
 
     # The second request must go through the graph again, not the cache.
-    second = client.post("/query", json={"query": "what triggers aml review", "user_id": 1})
+    second = client.post("/query", json={"query": "what triggers aml review"}, headers=as_user(1))
     assert second.json()["text"] == GENERIC_REFUSAL
     assert cache.hits == 0
 
@@ -181,6 +182,6 @@ def test_answers_are_cached_and_served():
         create_app(nodes=_nodes(), user_loader=lambda uid: ALEX, cache=cache),
         raise_server_exceptions=False,
     )
-    client.post("/query", json={"query": "how long to review a refund", "user_id": 1})
-    client.post("/query", json={"query": "how long to review a refund", "user_id": 1})
+    client.post("/query", json={"query": "how long to review a refund"}, headers=as_user(1))
+    client.post("/query", json={"query": "how long to review a refund"}, headers=as_user(1))
     assert cache.hits == 1

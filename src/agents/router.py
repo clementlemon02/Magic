@@ -153,6 +153,14 @@ def route_node(state: GraphState, chat_model=None, embeddings=None) -> dict:
         probabilities = student_probabilities(state["query"], embeddings)
         if probabilities:
             route, p = max(probabilities.items(), key=lambda kv: kv[1])
-            if p >= settings.router_student_min_confidence:
+            # The fast path may not choose `clarify` on its own. The two routes are
+            # not equally recoverable: a wrong rag or sql still passes the ACL filter
+            # and the Verifier, so the worst case is a refusal. A wrong `clarify`
+            # stalls a real question and asks the person to rephrase something they
+            # already said plainly. The student is a 333-row classifier trained on
+            # ordinary questions, and it reads a long rambling one as a pointer —
+            # `clarify` at 0.816 on a question the teacher routes correctly. Sending
+            # only that route to the teacher costs one LLM call on the rarest branch.
+            if route != "clarify" and p >= settings.router_student_min_confidence:
                 return {"route": route}
     return {"route": classify(state["query"], chat_model=chat_model)}

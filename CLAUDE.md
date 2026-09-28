@@ -99,6 +99,9 @@ incomplete review.
 - In: `query`, `user`. Out: `route`.
 - Few-shot classification into `rag | sql | clarify`. Dominant-intent only for compound queries — no
   sub-query splitting in MVP.
+- The distilled classifier answers above `ROUTER_STUDENT_MIN_CONFIDENCE`, **except for `clarify`**,
+  which always goes to the LLM. A wrong `rag` or `sql` still meets the §1 filter and the Verifier, so
+  it ends in a refusal at worst; a wrong `clarify` stalls a real question.
 - Two tiers. A classifier distilled from the LLM Router (`router_student.json`, trained by
   `scripts/train_router_student.py` on the question embedding) decides when its probability is
   ≥ `ROUTER_STUDENT_MIN_CONFIDENCE`; otherwise the few-shot LLM Router does. Retrain it when the
@@ -151,8 +154,11 @@ incomplete review.
 
 ### Audit — `src/agents/audit.py`
 - In: every state transition. Out: rows in `audit_log`.
-- One row per node transition, hash-chained (§6). `request_id`-keyed. `GET /audit/{request_id}` is the
-  only path that can read `explanation` back out.
+- One row per node transition, hash-chained (§6), written by `graph._recorded` as each node returns —
+  so every hop of a multi-hop request is on the record with its own timestamp and duration. A summary
+  of the finished request follows those rows. `request_id`-keyed. `GET /audit/{request_id}` is the only
+  path that can read `explanation` back out; `GET /audit/recent` lists requests for an officer to work
+  through, and both are role-gated.
 
 ### SQL Tool — `src/agents/sql_tool.py`
 - In: `query`, `user`. Out: `sql_result`.
@@ -199,6 +205,24 @@ class SourceConnector(Protocol):
 again at query time for restricted documents, via `source_denies`, to close the mirror's staleness
 window. `src/connectors/__init__.py` holds the one platform → connector registry; don't build another.
 
+## 4a. Authentication — `src/api/auth.py`
+
+Every route that reads or changes anything takes a signed bearer token. The token carries ONE
+claim, the subject; **role, department and clearance are read from `users`/`roles` on every
+request**, so a token cannot assert a role and walk past the §1 predicate. That is the same rule
+§1 states for retrieval, applied to identity.
+
+- `POST /auth/login` (email + password, scrypt) issues it; `build_dependencies` yields `caller`
+  and `officer`, and `officer` checks the role on the **database row**, never the token.
+- A missing, malformed, expired or re-signed token, and a token naming a user who no longer
+  exists, are all one 401 — none of them says which, so this is not an account oracle.
+- The envelope for constant-time refusal opens in middleware, BEFORE the auth dependency runs:
+  authentication hits the database, its duration varies, and a variable step outside the padding
+  is exactly what the padding exists to hide.
+- Demo scope, stated rather than implied: no refresh, no revocation list, no rotation.
+  `AUTH_SECRET` is a committed demo key and `AUTH_TOKEN_TTL_MINUTES` is what bounds the damage.
+  `caller` is the seam to swap for a real identity provider.
+
 ## 5. Two-tier refusal contract
 
 ```python
@@ -211,6 +235,11 @@ def build_audit_explanation(request_id: str) -> ComplianceExplanation:
     # only reachable via the compliance-officer-authenticated endpoint
     ...
 ```
+
+A `Citation` may carry the evidence behind it — `passage` for a chunk, `query` for the SQL that
+counted the rows — so an asker can check an answer instead of trusting it. That is safe on `Citation`
+and would not be on `AskerResponse`: `build_response` gives a refusal `AskerResponse(text=GENERIC_REFUSAL)`
+and nothing else, so `citations` is empty on every refusal and neither field has a path out on one.
 
 `state.explanation` must never appear in an `AskerResponse`. If you're tempted to add detail to the
 asker-facing refusal "to be more helpful," don't — that's the exact failure mode the brief's negative
@@ -235,8 +264,10 @@ and flags the first row whose `row_hash` doesn't match (`python -m src.agents.au
 - Python modules: `snake_case.py`, one agent per file under `src/agents/`.
 - Branches: `retrieval/*`, `orchestration/*`, `audit/*` — matches the three workstreams (§8).
 - Env vars: `SCREAMING_SNAKE_CASE`, declared in `.env.example` before use, never hardcoded.
-- API routes: `POST /query`, `GET /audit/{request_id}`, `GET /knowledge-gaps`, `GET /access-gaps`,
-  admin revoke under `POST /admin/permissions/revoke`.
+- API routes: `POST /auth/login`, `GET /auth/me`, `POST /query`, `GET /audit/{request_id}`,
+  `GET /audit/recent`, `GET /audit/verify`, `GET /knowledge-gaps`, `GET /access-gaps`,
+  `GET /admin/sources`, `GET /admin/permissions`, admin revoke under
+  `POST /admin/permissions/revoke`. Pages: `/` ask, `/dashboard` gaps, `/audit`, `/sources`.
 - Prompt constants: `PROMPT_TEMPLATE` (module-level, in the agent's own file), examples in
   `<agent>_examples.py` as `EXAMPLES`.
 

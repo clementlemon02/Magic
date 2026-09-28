@@ -1,206 +1,372 @@
 <!doctype html>
+<html lang="en">
+<head>
 <meta charset="utf-8">
-<title>Ask — Internal Brain</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<style>
-  :root {
-    --bg: #fbfbfa; --panel: #fff; --line: #e4e2dd; --ink: #1a1917;
-    --muted: #6b6862; --accent: #8a3324; --warn: #9a6b00;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --bg: #171614; --panel: #201f1c; --line: #34322d; --ink: #edeae4;
-      --muted: #9a958c; --accent: #e08b7a; --warn: #d9a441;
-    }
-  }
-  * { box-sizing: border-box; }
-  body {
-    margin: 0; padding: 32px 16px 64px; background: var(--bg); color: var(--ink);
-    font: 16px/1.5 ui-sans-serif, -apple-system, "Segoe UI", system-ui, sans-serif;
-  }
-  .wrap { max-width: 1040px; margin: 0 auto; }
-  nav { display: flex; gap: 6px; margin-bottom: 18px; font-size: 14px; }
-  nav a, nav span {
-    padding: 5px 12px; border-radius: 999px; text-decoration: none;
-    border: 1px solid var(--line); color: var(--muted);
-  }
-  nav span { background: var(--panel); color: var(--ink); border-color: var(--ink); }
-  .tabs { display: flex; gap: 8px; margin-bottom: 8px; }
-  .tabs button {
-    background: transparent; color: var(--muted); border: 1px solid var(--line);
-    font-size: 14px; padding: 6px 14px;
-  }
-  .tabs button.on { background: var(--ink); color: var(--bg); border-color: var(--ink); }
-  .topic { font-size: 17px; font-weight: 600; }
-  h1 { font-size: 26px; margin: 0 0 4px; letter-spacing: -0.01em; }
-  .sub { color: var(--muted); margin: 0 0 24px; }
-  .controls {
-    display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-end;
-    background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
-    padding: 14px 16px; margin-bottom: 20px;
-  }
-  label { display: block; font-size: 12px; text-transform: uppercase;
-          letter-spacing: .06em; color: var(--muted); margin-bottom: 4px; }
-  input {
-    font: inherit; padding: 6px 10px; width: 92px; color: var(--ink);
-    background: var(--bg); border: 1px solid var(--line); border-radius: 6px;
-  }
-  button {
-    font: inherit; padding: 7px 16px; border-radius: 6px; cursor: pointer;
-    border: 1px solid var(--ink); background: var(--ink); color: var(--bg);
-  }
-  .who { color: var(--muted); font-size: 14px; margin-left: auto; text-align: right; }
-  .who b { color: var(--ink); }
-  table { width: 100%; border-collapse: collapse; }
-  thead th {
-    text-align: left; font-size: 12px; text-transform: uppercase; letter-spacing: .06em;
-    color: var(--muted); font-weight: 600; padding: 0 12px 8px; border-bottom: 1px solid var(--line);
-  }
-  tbody td { padding: 14px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
-  tbody tr:hover { background: var(--panel); }
-  .askers { font-size: 30px; font-weight: 650; line-height: 1; font-variant-numeric: tabular-nums; }
-  .askers small { display: block; font-size: 11px; font-weight: 400; color: var(--muted);
-                  text-transform: uppercase; letter-spacing: .06em; margin-top: 4px; }
-  .doc { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13.5px; }
-  .platform { color: var(--muted); }
-  .tag { display: inline-block; font-size: 11px; padding: 2px 7px; border-radius: 999px;
-         border: 1px solid currentColor; margin: 3px 4px 0 0; }
-  .restricted { color: var(--accent); }
-  .signal { color: var(--muted); }
-  .q { color: var(--muted); font-size: 13.5px; margin: 2px 0 0; }
-  .note { background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--warn);
-          border-radius: 8px; padding: 14px 16px; color: var(--muted); }
-  .note.bad { border-left-color: var(--accent); }
-  .note b { color: var(--ink); }
-</style>
-<style>
-  textarea {
-    font: inherit; width: 100%; min-height: 76px; padding: 10px 12px; resize: vertical;
-    color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 6px;
-  }
-  .ask { display: block; }
-  .row { display: flex; gap: 16px; align-items: flex-end; margin-top: 12px; }
-  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 14px 0 0; }
-  .chips button {
-    background: transparent; color: var(--muted); border: 1px solid var(--line);
-    font-size: 13px; padding: 5px 11px; border-radius: 999px; text-align: left;
-  }
-  .chips button:hover { color: var(--ink); border-color: var(--ink); }
-  .answer {
-    background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--ink);
-    border-radius: 8px; padding: 18px 20px; font-size: 17px; line-height: 1.6;
-  }
-  .answer.refused { border-left-color: var(--accent); }
-  .cites { margin-top: 18px; }
-  .cites h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em;
-              color: var(--muted); margin: 0 0 8px; font-weight: 600; }
-  .cite { display: flex; gap: 10px; align-items: baseline; padding: 7px 0;
-          border-top: 1px solid var(--line); }
-  .cite .doc { font-size: 13px; }
-  .cite .title { color: var(--muted); font-size: 14px; }
-</style>
+<title>Internal Brain</title>
+<link rel="stylesheet" href="/ui/app.css">
+<script src="/ui/app.js"></script>
+</head>
+<body>
 
-<div class="wrap">
-  <nav><span>Ask</span> <a href="/dashboard">Compliance</a></nav>
-  <h1>Internal Brain</h1>
-  <p class="sub">Ask across Confluence, Jira, Slack and Drive. You only ever see what
-    your own permissions allow — the filter runs in the database, before any of it
+<header class="bar">
+  <span class="brand"><span class="dot"></span>Internal Brain <small>Aurelia</small></span>
+  <nav>
+    <a href="/" aria-current="page">Ask</a>
+    <a href="/dashboard">Gaps</a>
+    <a href="/audit">Audit</a>
+    <a href="/sources">Sources</a>
+  </nav>
+  <span class="spacer"></span>
+  <button class="icon-button" id="theme" type="button" aria-label="Switch theme" title="Switch theme">◐</button>
+</header>
+
+<main class="page">
+  <h1>Ask</h1>
+  <p class="lede">Confluence, Jira, Slack and Drive, in one question. You only ever see
+    what your own permissions allow — the filter runs in the database, before any of it
     reaches the model.</p>
 
-  <div class="controls ask">
-    <div>
-      <label for="q">Question</label>
-      <textarea id="q" placeholder="How long do customers have to contest a chargeback?"></textarea>
-    </div>
-    <div class="row">
-      <div>
-        <label for="uid">Asking as (user id)</label>
-        <input id="uid" type="number" min="1" value="1">
+  <form class="panel ask" id="form">
+    <label class="label" for="q">Question</label>
+    <textarea id="q" name="q" rows="2" spellcheck="false"
+      placeholder="How long do customers have to contest a chargeback?"></textarea>
+
+    <div class="controls">
+      <div class="mode" role="tablist" aria-label="Who asks">
+        <button id="mode-one" type="button" role="tab" aria-selected="true">One caller</button>
+        <button id="mode-two" type="button" role="tab" aria-selected="false">Side by side</button>
       </div>
-      <button id="go">Ask</button>
-      <div class="who" id="who"></div>
+      <span class="asking" id="asking"></span>
+      <button id="go" type="submit">Ask</button>
+      <div class="readout" id="clock" hidden>
+        <span class="big" id="elapsed">0.00</span><span class="unit">seconds</span>
+      </div>
     </div>
+  </form>
+
+  <div class="try">
+    <span class="section">Try one</span>
     <div class="chips" id="chips"></div>
   </div>
 
-  <div id="out"></div>
-</div>
+  <section class="result" id="out" aria-live="polite">
+    <!-- Replaced by the first answer. An empty page teaches a first-time reader
+         nothing about what this does, and there is nothing real to show until
+         someone asks. -->
+    <div class="awaiting">
+      <span class="section">What comes back</span>
+      <ul>
+        <li><b>An answer, or one refusal.</b> Every refusal is the same sentence and
+          takes the same time, so neither the words nor the clock says why.</li>
+        <li><b>The sources behind it</b> — open one to read the passage the wording came
+          from, or the query that counted the rows.</li>
+        <li><b>How long it took.</b> A refusal is held to a fixed deadline; an answer
+          is not.</li>
+      </ul>
+    </div>
+  </section>
+</main>
 
 <script>
-  const $ = (id) => document.getElementById(id);
-  const esc = (s) => String(s).replace(/[&<>"]/g, (c) =>
-    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const $ = (id) => document.getElementById(id);
+// Nothing below runs until somebody is signed in.
+if (!IB.start()) { throw new Error("signed out"); }
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) =>
+  ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
-  // The demo's own questions. The AML one is the point: ask it as 1, then as 2.
-  const SAMPLES = [
-    [1, "How long do customers have to contest a chargeback?"],
-    [1, "What triggers an AML escalation review?"],
-    [2, "What triggers an AML escalation review?"],
-    [1, "How many transactions were flagged for AML in August?"],
-    [1, "What is our parental leave policy?"],
-  ];
+/* --- theme ---------------------------------------------------------------- */
 
-  $("chips").innerHTML = SAMPLES.map(([uid, q], i) =>
-    `<button data-i="${i}">as ${uid} · ${esc(q)}</button>`).join("");
-  $("chips").addEventListener("click", (e) => {
-    const button = e.target.closest("button");
-    if (!button) return;
-    const [uid, q] = SAMPLES[button.dataset.i];
-    $("uid").value = uid;
-    $("q").value = q;
-    ask();
-  });
+/* --- demo questions -------------------------------------------------------
+   Ids rather than names on purpose: the page never enumerates who exists.
+   The middle pair is the whole demo — same question, two callers.          */
+// One entry per question. The AML one used to appear twice, once per caller — the
+// caller is whoever is signed in now, so the pair read as a duplicate. Side by side
+// is how you ask it as two people.
+const SAMPLES = [
+  "How long do customers have to contest a chargeback?",
+  "What triggers an AML escalation review?",
+  "How many transactions were flagged for AML in August?",
+  "What is our parental leave policy?",
+];
+$("chips").innerHTML = SAMPLES.map((q, i) =>
+  `<button class="chip" type="button" data-i="${i}">${esc(q)}</button>`).join("");
+$("chips").addEventListener("click", (e) => {
+  const chip = e.target.closest(".chip");
+  if (!chip) return;
+  $("q").value = SAMPLES[chip.dataset.i];
+  ask();
+});
 
-  function render(reply) {
-    // §5: every refusal is this exact string, whatever the cause. The reason exists,
-    // but it lives in the audit log and only a compliance officer can read it back out.
-    const refused = reply.text.startsWith("I don't have an answer you're permitted");
-    const cites = reply.citations.length ? `
-      <div class="cites"><h3>Sources</h3>${reply.citations.map((c) => `
-        <div class="cite">
-          <span class="doc">${esc(c.source_platform)}:${esc(c.source_ref)}</span>
+/* --- asking --------------------------------------------------------------- */
+const REFUSAL = "I don't have an answer you're permitted";
+let ticking = null;
+
+function startClock() {
+  const began = performance.now();
+  $("clock").hidden = false;
+  $("elapsed").textContent = "0.00";
+  ticking = setInterval(() => {
+    $("elapsed").textContent = ((performance.now() - began) / 1000).toFixed(2);
+  }, 60);
+  return () => {
+    clearInterval(ticking);
+    const seconds = (performance.now() - began) / 1000;
+    $("elapsed").textContent = seconds.toFixed(2);
+    return seconds;
+  };
+}
+
+// Escape first, then mark the one line worth looking at. Marking before escaping
+// would put the tag through esc() and print it.
+function highlightAcl(sql) {
+  return esc(sql).split("\n").map((line) =>
+    line.includes("acl_tags") ? `<span class="acl">${line}</span>` : line).join("\n");
+}
+
+function renderAnswer(reply, seconds, { bare = false } = {}) {
+  // `bare` is the side-by-side column: the scale above it already carries the
+  // timing, and the explanation is stated once under both columns instead of twice.
+  const withheld = reply.text.startsWith(REFUSAL);
+  // Each citation can show what actually backs it: the passage the wording came
+  // from, or the query that counted the rows. Checking beats trusting.
+  const sources = reply.citations.length ? `
+    <div class="sources">
+      <span class="section">Sources</span>
+      ${reply.citations.map((c, i) => {
+        const evidence = c.passage || c.query;
+        return `
+        <div class="source">
+          <span class="ref"><span class="plat">${esc(c.source_platform)}:</span>${esc(c.source_ref)}</span>
           <span class="title">${esc(c.title)}</span>
-        </div>`).join("")}</div>` : "";
-    const note = refused ? `
-      <div class="note" style="margin-top:16px">Every refusal is this same sentence, whether the
-        answer was restricted, unsupported or simply missing — so the wording cannot tell you
-        which. The specific reason <b>was</b> recorded, and only a compliance officer can read
-        it back, via <b>GET /audit/{request_id}</b> or the
-        <a href="/dashboard" style="color:inherit">gaps dashboard</a>.</div>` : "";
-    return `<div class="answer ${refused ? "refused" : ""}">${esc(reply.text)}${cites}</div>${note}`;
+          <span class="actions">
+            ${evidence ? `<button class="copy" type="button" data-peek="${i}">Show ${
+              c.query ? "query" : "passage"}</button>` : ""}
+            <button class="copy" type="button" data-ref="${esc(c.source_platform)}:${esc(c.source_ref)}">Copy</button>
+          </span>
+        </div>
+        ${evidence ? `<div class="evidence" id="peek-${i}" hidden>${
+          c.query
+            ? `<pre>${highlightAcl(c.query)}</pre>
+               <p class="why">The highlighted predicate is the access control. It runs
+                 inside the query, before ranking and before anything reaches a model —
+                 which is why two people asking this get different numbers. Shown with
+                 values written in; what ran was the template with every value bound by
+                 the driver.</p>`
+            : `<p class="passage">${esc(c.passage)}</p>`
+        }</div>` : ""}`;
+      }).join("")}
+    </div>` : "";
+
+  // Timing is content here, not chrome: a refusal held to the deadline is the
+  // property that stops the clock from saying what the words won't. Claim it only
+  // when the clock agrees — a refusal that ran long escaped, and saying otherwise
+  // next to a number that contradicts it discredits the whole guarantee. The upper
+  // bound allows for the browser round-trip on top of the server's own padding.
+  let held = "";
+  if (bare) {
+    held = "";
+  } else if (withheld && seconds >= 3.9 && seconds <= 4.6) {
+    held = `<div class="note"><b>Held to the 4.0s deadline.</b> Every refusal takes the same
+      time whatever caused it, so timing this answer tells you nothing the sentence doesn't.
+      Unpadded, a permission refusal returns in about 0.9s and an unanswerable one in 4.3s —
+      enough to map what restricted material exists without ever seeing it.</div>`;
+  } else if (withheld && seconds > 4.6) {
+    held = `<div class="note"><b>This refusal ran past the 4.0s deadline.</b> Padding holds a
+      refusal until the deadline but cannot pull it back, so a slow one leaks in that single
+      direction. <code>evals/refusal_timing.py</code> measures how often: 0% on an idle
+      machine. A cold model load or a loaded laptop is the usual cause.</div>`;
   }
 
-  async function ask() {
-    const uid = Number($("uid").value), query = $("q").value.trim();
-    if (!query) { $("q").focus(); return; }
-    $("out").innerHTML = `<div class="note">Thinking… a refusal is held to a fixed deadline,
-      so it cannot be timed to reveal why it was refused.</div>`;
-    $("who").innerHTML = "";
-    const started = performance.now();
-    let response;
-    try {
-      response = await fetch("/query", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ user_id: uid, query }),
-      });
-    } catch (error) {
-      $("out").innerHTML = `<div class="note bad"><b>Cannot reach the API.</b>
-        Is uvicorn running? ${esc(error.message)}</div>`;
-      return;
-    }
-    const seconds = ((performance.now() - started) / 1000).toFixed(2);
-    if (!response.ok) {
-      const detail = (await response.json().catch(() => ({}))).detail || "";
-      $("out").innerHTML = `<div class="note bad"><b>HTTP ${response.status}</b> ${esc(detail)}</div>`;
-      return;
-    }
-    $("who").innerHTML = `asked as <b>user ${esc(uid)}</b><br>${seconds}s`;
-    $("out").innerHTML = render(await response.json());
-  }
+  const why = bare || !withheld
+    ? ""
+    : `<div class="note alert">Every refusal is this same sentence, whether the answer was
+         restricted, unsupported or simply missing. The specific reason <b>was</b> recorded,
+         and only a compliance officer can read it back — via <code>GET /audit/{request_id}</code>
+         or the <a href="/dashboard">gaps dashboard</a>.</div>`;
 
-  $("go").addEventListener("click", ask);
-  $("q").addEventListener("keydown", (e) => {
-    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) ask();
+  return `<div class="answer ${withheld ? "withheld" : ""}">${esc(reply.text)}${sources}</div>${held}${why}`;
+}
+
+// One request, measured. Everything below composes this.
+async function run(uid, query) {
+  const began = performance.now();
+  // `as: uid` sends THAT person's token. Nothing here asks on anyone's behalf —
+  // showing what two people see means holding two people's tokens.
+  const response = await IB.api("/query", {
+    method: "POST",
+    as: uid,
+    body: JSON.stringify({ query }),
   });
+  const seconds = (performance.now() - began) / 1000;
+  if (!response.ok) {
+    const detail = (await response.json().catch(() => ({}))).detail || "";
+    throw new Error(`HTTP ${response.status}. ${detail}`);
+  }
+  return { reply: await response.json(), seconds };
+}
+
+const DEADLINE = 4.0;
+const SCALE = 8.0;
+
+function scale(seconds, withheld) {
+  const pct = Math.min(seconds / SCALE, 1) * 100;
+  return `
+    <div class="scale ${withheld ? "withheld" : ""}">
+      <div class="head">
+        <span class="secs">${seconds.toFixed(2)}</span><span class="unit">seconds</span>
+        <span class="verdict" style="color:var(--${withheld ? "withheld" : "clear"})">${
+          withheld ? "withheld" : "answered"}</span>
+      </div>
+      <div class="track">
+        <div class="fill" style="width:${pct}%"></div>
+        <div class="deadline" style="left:${(DEADLINE / SCALE) * 100}%"></div>
+      </div>
+      <div class="ticks"><span>0s</span><span class="mark">${DEADLINE.toFixed(1)}s deadline</span><span>${SCALE}s</span></div>
+    </div>`;
+}
+
+function side(uid, result) {
+  const withheld = result.reply.text.startsWith(REFUSAL);
+  return `
+    <div class="side">
+      <div class="caller">
+        <span class="who">${esc(uid)}</span>
+        <span class="role">Caller ${esc(uid)}</span>
+        <span class="rule"></span>
+      </div>
+      ${scale(result.seconds, withheld)}
+      ${renderAnswer(result.reply, result.seconds, { bare: true })}
+    </div>`;
+}
+
+// What the two columns prove, stated rather than left to the reader.
+function finding(a, b) {
+  const refusedA = a.result.reply.text.startsWith(REFUSAL);
+  const refusedB = b.result.reply.text.startsWith(REFUSAL);
+  const gap = Math.abs(a.result.seconds - b.result.seconds).toFixed(2);
+
+  if (refusedA !== refusedB) {
+    const held = refusedA ? a : b;
+    const took = held.result.seconds;
+    // Say what the clock says. Claiming the deadline held while the number beside it
+    // says otherwise discredits the one property the whole project rests on — the
+    // same mistake this page already made once, in renderAnswer.
+    const timing = took <= DEADLINE + 0.6
+      ? `The refusal took <b>${took.toFixed(2)}s</b>, held to the ${DEADLINE.toFixed(1)}s
+         deadline, so its timing says no more than its wording does. Without that padding a
+         permission refusal returns in about 0.9s, and timing alone would tell caller
+         ${esc(held.uid)} that something exists here.`
+      : `The refusal took <b>${took.toFixed(2)}s</b> and so ran <b>past</b> the
+         ${DEADLINE.toFixed(1)}s deadline — padding holds a refusal until the deadline but
+         cannot pull it back, and that overshoot is the residual leak
+         <code>evals/refusal_timing.py</code> measures. It reports 0% on an idle machine; a
+         cold model or a loaded laptop is the usual cause.`;
+    return `<div class="finding"><span class="lead">One question. Two truths. One clock.</span>
+      Caller ${esc(held.uid)} was refused and caller ${esc(refusedA ? b.uid : a.uid)} was answered,
+      from the same corpus at the same moment — the filter ran in the database before either
+      reached the model. ${timing}</div>`;
+  }
+  if (refusedA && refusedB) {
+    return `<div class="finding"><span class="lead">Both refused, and indistinguishably so.</span>
+      Byte-identical text, and ${gap}s between them — both held to the ${DEADLINE.toFixed(1)}s
+      deadline. Neither caller can tell whether an answer exists, or whether the other one got it.</div>`;
+  }
+  return `<div class="finding"><span class="lead">Both answered.</span>
+    Nothing here is restricted to either caller, so the permission filter changed nothing —
+    which is the common case, and the one a security demo never shows.</div>`;
+}
+
+async function ask() {
+  const query = $("q").value.trim();
+  if (!query) { $("q").focus(); return; }
+  const comparing = $("mode-two").getAttribute("aria-selected") === "true";
+
+  $("go").disabled = true;
+  $("out").innerHTML = `<div class="answer pending">Working. A refusal is held to a fixed
+    deadline, so its timing cannot reveal why it was refused.</div>`;
+  const stop = startClock();
+
+  try {
+    if (!comparing) {
+      const { reply, seconds } = await run(IB.active(), query);
+      stop();
+      $("out").innerHTML = renderAnswer(reply, seconds);
+      return;
+    }
+
+    // Sequential, not parallel. One model serves one request at a time, so two in
+    // flight would queue and the second one's clock would show the wait rather than
+    // the work — and on a screen whose whole point is timing, that is a lie.
+    const [uidA, uidB] = IB.signedIn();
+    const a = { uid: uidA, result: await run(uidA, query) };
+    const b = { uid: uidB, result: await run(uidB, query) };
+    stop();
+    $("out").innerHTML =
+      `<div class="compare">${side(uidA, a.result)}${side(uidB, b.result)}</div>` +
+      finding(a, b);
+  } catch (error) {
+    stop();
+    $("out").innerHTML = `<div class="note alert"><b>${esc(error.message)}</b>
+      If the API is unreachable, start it with
+      <code>uvicorn src.api.main:app --port 8000</code>.</div>`;
+  } finally {
+    $("go").disabled = false;
+  }
+}
+
+function describeIdentities() {
+  const held = IB.signedIn();
+  const comparing = $("mode-two").getAttribute("aria-selected") === "true";
+  $("go").textContent = comparing ? "Ask both" : "Ask";
+  $("go").disabled = comparing && held.length < 2;
+  $("asking").innerHTML = comparing
+    ? (held.length >= 2
+        ? `as <b>user ${IB.esc(held[0])}</b> and <b>user ${IB.esc(held[1])}</b>`
+        : `<span style="color:var(--caution)">Add a second identity to compare —
+           you can only show what someone sees if you can sign in as them.</span>`)
+    : `as <b>user ${IB.esc(IB.active())}</b>`;
+}
+
+for (const [id, on] of [["mode-one", false], ["mode-two", true]]) {
+  $(id).addEventListener("click", () => {
+    $("mode-one").setAttribute("aria-selected", String(!on));
+    $("mode-two").setAttribute("aria-selected", String(on));
+    describeIdentities();
+  });
+}
+describeIdentities();
+
+$("form").addEventListener("submit", (e) => { e.preventDefault(); ask(); });
+$("q").addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); ask(); }
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "/" && document.activeElement !== $("q")) { e.preventDefault(); $("q").focus(); }
+});
+$("out").addEventListener("click", async (e) => {
+  const peek = e.target.closest("[data-peek]");
+  if (peek) {
+    const box = $(`peek-${peek.dataset.peek}`);
+    box.hidden = !box.hidden;
+    peek.textContent = box.hidden
+      ? peek.textContent.replace("Hide", "Show")
+      : peek.textContent.replace("Show", "Hide");
+    return;
+  }
+  const button = e.target.closest(".copy[data-ref]");
+  if (!button) return;
+  try {
+    await navigator.clipboard.writeText(button.dataset.ref);
+    button.textContent = "Copied";
+    setTimeout(() => { button.textContent = "Copy"; }, 1400);
+  } catch (_) {
+    const range = document.createRange();
+    range.selectNodeContents(button.closest(".source").querySelector(".ref"));
+    getSelection().removeAllRanges();
+    getSelection().addRange(range);
+  }
+});
 </script>
+</body>
+</html>

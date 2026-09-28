@@ -118,16 +118,36 @@ def append_in(conn, request_id, user_id, events, *, escalation_reason=None) -> N
 def events_for(state: GraphState) -> list[AuditEvent]:
     """The request's trail, in the order the graph produced it.
 
-    ponytail: derived from the final state by one terminal node, not written at each
-    transition, so a multi-hop request records its last hop only (and the hop count).
-    Wrap each node in build_graph if per-hop rows are ever needed.
+    Two kinds of row. What the nodes wrote as they ran — one `node_transition` each,
+    plus whatever a node recorded itself — comes first, in the order it happened and
+    with its own timestamps. The summary of the finished request follows, built here
+    from final state, so those rows all carry the same closing time.
+
+    ponytail: the summary still describes the LAST hop's chunks and verdict. The rows
+    above it say a hop happened and how long it took, not what that hop retrieved;
+    put that detail in retrieval's own event if an auditor ever needs it.
     """
     now = datetime.now(UTC)
 
     def event(event_type, payload):
         return AuditEvent(event_type=event_type, payload=payload, occurred_at=now)
 
-    trail = [event("query_received", {"query": state["query"], "route": state.get("route")})]
+    # Written by the nodes themselves, already in order: one per transition, plus
+    # Escalation's reason, a cache hit, a source recheck.
+    recorded = list(state.get("audit_events") or [])
+
+    # The question arrived before any node ran, so it takes the first node's time
+    # rather than `now`. Given `now`, the opening row of the trail carried the
+    # LATEST timestamp in it, which reads like the request began after it ended.
+    began = recorded[0].occurred_at if recorded else now
+    trail = [
+        AuditEvent(
+            event_type="query_received",
+            payload={"query": state["query"], "route": state.get("route")},
+            occurred_at=began,
+        )
+    ]
+    trail.extend(recorded)
 
     if state.get("hop_count"):
         chunks = state.get("retrieved_chunks") or []
@@ -149,9 +169,6 @@ def events_for(state: GraphState) -> list[AuditEvent]:
     if state.get("verification") is not None:
         trail.append(event("verification", state["verification"].model_dump(mode="json")))
 
-    # Written by nodes that know something the final state doesn't (Escalation's
-    # reason, a cache hit), kept in their own order.
-    trail.extend(state.get("audit_events") or [])
 
     trail.append(event("final_answer", {
         "escalated": bool(state.get("escalated")),
@@ -180,6 +197,51 @@ def read_request(request_id: str, connect: Callable = _connect) -> list[AuditEve
             (request_id,),
         ).fetchall()
     return [AuditEvent(event_type=t, payload=p, occurred_at=c) for t, p, c in rows]
+
+
+RECENT_REQUESTS = """
+    SELECT question.request_id,
+           question.created_at,
+           question.user_id,
+           question.payload->>'query' AS query,
+           question.payload->>'route' AS route,
+           coalesce((final.payload->>'escalated')::boolean, false) AS escalated,
+           escalation.payload->>'reason' AS reason
+    FROM audit_log AS question
+    LEFT JOIN audit_log AS final
+      ON final.request_id = question.request_id AND final.event_type = 'final_answer'
+    LEFT JOIN audit_log AS escalation
+      ON escalation.request_id = question.request_id AND escalation.event_type = 'escalation'
+    WHERE question.event_type = 'query_received' AND question.created_at >= %(since)s
+    ORDER BY question.created_at DESC
+    LIMIT %(limit)s
+"""
+
+
+def recent_requests(
+    since: datetime, *, limit: int = 100, connect: Callable = _connect
+) -> list[dict[str, Any]]:
+    """Every request in the window, newest first, with how it ended.
+
+    The asker-facing routes cannot list these: a request id is the key to an
+    explanation, so browsing them is an officer's job (src/api/compliance.py).
+    The question text comes along because an officer working through refusals needs
+    to see what was asked, not a column of UUIDs.
+    """
+    with connect() as conn:
+        rows = conn.execute(RECENT_REQUESTS, {"since": since, "limit": limit}).fetchall()
+    return [
+        {
+            "request_id": str(request_id),
+            "at": at,
+            "user_id": user_id,
+            "query": query or "",
+            "route": route,
+            "escalated": bool(escalated),
+            "reason": reason,
+        }
+        for request_id, at, user_id, query, route, escalated, reason in rows
+    ]
 
 
 @dataclass

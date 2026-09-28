@@ -10,6 +10,7 @@ from UserContext.
 """
 
 import asyncio
+from contextlib import asynccontextmanager
 import logging
 import time
 import uuid
@@ -17,11 +18,12 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 
 import psycopg
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
+from src.api.auth import build_dependencies, issue_token, verify_password
 from src.api.compliance import build_router
 from src.api.ui import build_router as build_ui_router
 from src.cache import PermissionAwareCache
@@ -31,12 +33,38 @@ from src.graph.state import AskerResponse, AuditEvent, GraphState, UserContext
 
 
 class QueryRequest(BaseModel):
-    """What a caller may send. Deliberately cannot carry role, dept or clearance."""
+    """What a caller may send: the question, and nothing about themselves.
+
+    `user_id` used to be a field here, unchecked against anything, so any client
+    could ask as anyone — and identity is the input every ACL predicate downstream
+    is built from. The caller comes from a signed token now (src/api/auth.py).
+    """
 
     model_config = {"extra": "forbid"}
 
     query: str = Field(min_length=1, max_length=2000)
-    user_id: int
+
+
+class LoginRequest(BaseModel):
+    model_config = {"extra": "forbid"}
+
+    email: str = Field(min_length=3, max_length=320)
+    password: str = Field(min_length=1, max_length=256)
+
+
+class Token(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    expires_in: int
+
+
+class Me(BaseModel):
+    """Who the token says you are, answered by the database."""
+
+    id: int
+    role: str
+    dept: str
+    clearance_level: int
 
 
 def load_user(user_id: int) -> UserContext | None:
@@ -58,7 +86,29 @@ def load_user(user_id: int) -> UserContext | None:
         with conn.cursor() as cur:
             cur.execute(sql, {"user_id": user_id})
             row = cur.fetchone()
+    # Role and clearance come from HERE on every request and never from the token —
+    # see src/api/auth.py. That is what stops a bearer token asserting a role.
     return UserContext(**row) if row else None
+
+
+def load_credentials(email: str) -> tuple[int, str | None] | None:
+    """The id and stored hash for an email, for sign-in only.
+
+    Separate from `load_user` so nothing on the request path can reach a hash, and
+    so `UserContext` never carries one.
+    """
+    settings = get_settings()
+    with psycopg.connect(
+        settings.database_url, connect_timeout=settings.db_connect_timeout_seconds
+    ) as conn:
+        conn.read_only = True
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT id, password_hash FROM users WHERE lower(email) = lower(%(email)s)",
+                {"email": email},
+            )
+            row = cur.fetchone()
+    return (row[0], row[1]) if row else None
 
 
 logger = logging.getLogger(__name__)
@@ -171,9 +221,34 @@ def initial_state(query: str, user: UserContext) -> GraphState:
     }
 
 
+async def _warm(settings) -> None:
+    """Load the model before the first question arrives, not during it.
+
+    Fire and forget: the server is serving as soon as it binds, and a failure here
+    is a slow first answer, never a broken one — so every error is swallowed apart
+    from a log line. /health does not wait on it either, since a warm model is a
+    nicety and a reachable API is not.
+    """
+    if not settings.warm_on_startup:
+        return
+
+    def once() -> None:
+        from src.llm.factory import get_chat_model, get_embeddings
+
+        get_embeddings().embed_query("warm")
+        get_chat_model().invoke("Reply with the single word: ready")
+
+    try:
+        await run_in_threadpool(once)
+        logger.info("model warmed")
+    except Exception as error:  # noqa: BLE001 — a cold model is not a failed start
+        logger.warning("warm-up skipped: %s", error)
+
+
 def create_app(
     nodes: dict | None = None,
     user_loader=load_user,
+    credential_loader=load_credentials,
     cache=None,
     *,
     refusal_deadline: float | None = None,
@@ -183,10 +258,20 @@ def create_app(
     """Build the app. `clock` and `sleeper` are injectable so padding is testable
     without sleeping; `refusal_deadline` overrides the configured value, 0 disables it.
     """
-    app = FastAPI(title="Internal Brain")
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI):
+        # Not awaited: the server should be answering before the model finishes
+        # loading, and a warm-up that fails is a slow first answer, not a bad start.
+        task = asyncio.create_task(_warm(get_settings()))
+        yield
+        task.cancel()
+
+    app = FastAPI(title="Internal Brain", lifespan=lifespan)
     nodes = nodes or default_nodes()
     graph = build_graph(**nodes)
-    app.include_router(build_router(user_loader))
+    # Built before the routers: both the compliance router and /query depend on it.
+    caller, officer = build_dependencies(user_loader)
+    app.include_router(build_router(user_loader, officer=officer))
     app.include_router(build_ui_router())
     settings = get_settings()
     if cache is None and settings.query_cache_enabled:
@@ -209,11 +294,43 @@ def create_app(
         if remaining > 0:
             await sleeper(remaining)
 
-    def resolve_user(request: QueryRequest) -> UserContext:
-        user = user_loader(request.user_id)
-        if user is None:
-            raise HTTPException(status_code=404, detail="Unknown user")
-        return user
+    @app.post("/auth/login", response_model=Token)
+    async def login(body: LoginRequest) -> Token:
+        settings = get_settings()
+
+        def check() -> int | None:
+            found = credential_loader(body.email)
+            # verify_password is run even when the email is unknown, against a hash
+            # that cannot match, so a wrong address and a wrong password cost the
+            # same time. Otherwise the response time enumerates accounts.
+            user_id, stored = found if found else (None, None)
+            return user_id if verify_password(body.password, stored) else None
+
+        user_id = await run_in_threadpool(check)
+        if user_id is None:
+            # One message for both, so it never says which half was wrong.
+            raise HTTPException(status_code=401, detail="That email and password do not match.")
+        return Token(
+            access_token=issue_token(user_id),
+            expires_in=settings.auth_token_ttl_minutes * 60,
+        )
+
+    @app.get("/auth/me", response_model=Me)
+    async def me(user: UserContext = Depends(caller)) -> Me:
+        return Me(**user.model_dump())
+
+    @app.middleware("http")
+    async def stamp_arrival(request: Request, call_next):
+        """Open the constant-time envelope at the very start of the request.
+
+        The handler used to call clock() itself, which was early enough when the
+        caller was resolved inside it. A dependency runs BEFORE the handler, so
+        authenticating there moved a variable, database-backed step outside the
+        padding — and a step whose duration varies is exactly what the padding
+        exists to hide (design doc §6.3). Middleware runs before dependencies.
+        """
+        request.state.arrived = clock()
+        return await call_next(request)
 
     @app.exception_handler(Exception)
     def unhandled(request: Request, exc: Exception) -> JSONResponse:
@@ -240,16 +357,20 @@ def create_app(
         )
 
     @app.post("/query", response_model=AskerResponse)
-    async def query(request: QueryRequest) -> AskerResponse:
-        # The clock starts before the caller is resolved and before the cache lookup:
-        # both vary and both precede the graph, so starting later would leave them
-        # outside the padded envelope (design doc §6.3).
-        started = clock()
+    async def query(
+        request: QueryRequest, raw: Request, user: UserContext = Depends(caller)
+    ) -> AskerResponse:
+        # Stamped by stamp_arrival before any dependency ran, so authentication and
+        # the cache lookup are both inside the envelope.
+        started = getattr(raw.state, "arrived", None)
+        if started is None:  # pragma: no cover - middleware always runs in the app
+            started = clock()
 
         # Async handler, blocking work on the threadpool: padding then awaits on the
         # event loop and holds no worker. A sync sleep would hold one of ~40 for the
         # full deadline, and parallel restricted questions would exhaust the pool.
-        user = await run_in_threadpool(resolve_user, request)
+        # `user` is already resolved: the dependency verified the token and read the
+        # row before this handler ran.
 
         if cache is not None:
             cached = await run_in_threadpool(cache.get, request.query, user)

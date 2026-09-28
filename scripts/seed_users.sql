@@ -54,16 +54,25 @@ ON CONFLICT (name) DO NOTHING;
 -- deliberately orphaned — no persona holds them. Give either to a new user and they
 -- silently gain restricted compliance content, which is precisely the stale-membership
 -- oversharing this project exists to surface. Pick 11 and up.
-INSERT INTO users (id, name, email, role_id, dept) VALUES
-    (1, 'Alex Tan',    'alex.tan@aurelia.example',    (SELECT id FROM roles WHERE name = 'support'),     'support'),
-    (2, 'Marcus Lim',  'marcus.lim@aurelia.example',  (SELECT id FROM roles WHERE name = 'compliance'),  'compliance'),
-    (3, 'Priya Nair',  'priya.nair@aurelia.example',  (SELECT id FROM roles WHERE name = 'support'),     'support'),
-    (4, 'Daniel Ong',  'daniel.ong@aurelia.example',  (SELECT id FROM roles WHERE name = 'support'),     'support'),
-    (5, 'Wei Lin',     'wei.lin@aurelia.example',     (SELECT id FROM roles WHERE name = 'engineering'), 'engineering'),
-    (6, 'Sofia Reyes', 'sofia.reyes@aurelia.example', (SELECT id FROM roles WHERE name = 'engineering'), 'engineering'),
-    (7, 'Hannah Koh',  'hannah.koh@aurelia.example',  (SELECT id FROM roles WHERE name = 'compliance'),  'compliance'),
-    (8, 'Raj Menon',   'raj.menon@aurelia.example',   (SELECT id FROM roles WHERE name = 'operations'),  'operations')
-ON CONFLICT (id) DO NOTHING;
+-- Every persona's password is the literal word `demo`. A DEMO CREDENTIAL, written
+-- here on purpose so a fresh clone can sign in; the hashes are scrypt with a fixed
+-- per-user salt so this file produces the same rows on every machine. Nothing here
+-- is a secret worth protecting, and nothing here should exist outside a demo.
+INSERT INTO users (id, name, email, role_id, dept, password_hash) VALUES
+    (1, 'Alex Tan',    'alex.tan@aurelia.example',    (SELECT id FROM roles WHERE name = 'support'),     'support', 'scrypt$AQEBAQEBAQEBAQEBAQEBAQ$TAJzOrP73_JZxAgVUaMP5igEyau3BlxrXVNGZFf6RPU'),
+    (2, 'Marcus Lim',  'marcus.lim@aurelia.example',  (SELECT id FROM roles WHERE name = 'compliance'),  'compliance', 'scrypt$AgICAgICAgICAgICAgICAg$RzsFfPxjAsdLyxYwi2mBsyG8WvDkblt4FhiLwJ6hJ4Q'),
+    (3, 'Priya Nair',  'priya.nair@aurelia.example',  (SELECT id FROM roles WHERE name = 'support'),     'support', 'scrypt$AwMDAwMDAwMDAwMDAwMDAw$dFC9iNTCKloRG3UZaZ4av4CpdGqhWJ1YxTt-QJfQ4TQ'),
+    (4, 'Daniel Ong',  'daniel.ong@aurelia.example',  (SELECT id FROM roles WHERE name = 'support'),     'support', 'scrypt$BAQEBAQEBAQEBAQEBAQEBA$B9Mjan8Kceo-pgtkukkU3UlQNDy0wcmeBKhH7MupKkM'),
+    (5, 'Wei Lin',     'wei.lin@aurelia.example',     (SELECT id FROM roles WHERE name = 'engineering'), 'engineering', 'scrypt$BQUFBQUFBQUFBQUFBQUFBQ$0hbNT9iBmDlcOsRUJcokEZ26iFEhsfq-EaKAm9uhhc4'),
+    (6, 'Sofia Reyes', 'sofia.reyes@aurelia.example', (SELECT id FROM roles WHERE name = 'engineering'), 'engineering', 'scrypt$BgYGBgYGBgYGBgYGBgYGBg$Qj3QmA0bndUWrlUmRNKnplRZwpCCCvUxLdS5pF2sNC0'),
+    (7, 'Hannah Koh',  'hannah.koh@aurelia.example',  (SELECT id FROM roles WHERE name = 'compliance'),  'compliance', 'scrypt$BwcHBwcHBwcHBwcHBwcHBw$-VCQPThh15fsvVGyQg1K-JbB7s4eglWMJR8gK3ort3Q'),
+    (8, 'Raj Menon',   'raj.menon@aurelia.example',   (SELECT id FROM roles WHERE name = 'operations'),  'operations', 'scrypt$CAgICAgICAgICAgICAgICA$giVXvvP1MyLoexFwXPBRjUa87y9C76ryz_LWCjat3ds')
+-- Fill in a hash for a row seeded before the column existed, and leave alone any
+-- password someone has since set. DO NOTHING would skip existing personas entirely,
+-- which is how eight identities ended up unable to sign in.
+ON CONFLICT (id) DO UPDATE
+    SET password_hash = EXCLUDED.password_hash
+    WHERE users.password_hash IS NULL;
 
 -- Hand the sequence back past BOTH the assigned ids and the orphaned Slack member id
 -- 9, so the next auto-assigned user is 11 and cannot inherit a private channel by

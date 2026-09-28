@@ -23,6 +23,7 @@ from src.graph.state import (
     UserContext,
     VerificationResult,
 )
+from tests.helpers import as_user
 
 ALEX = UserContext(id=1, role="support", dept="support", clearance_level=0)
 DEADLINE = 4.0
@@ -93,7 +94,7 @@ def _client(clock, **overrides) -> TestClient:
 
 
 def _ask(client, query="anything"):
-    return client.post("/query", json={"query": query, "user_id": 1})
+    return client.post("/query", json={"query": query}, headers=as_user(1))
 
 
 def _conflict_retrieval(clock):
@@ -236,7 +237,7 @@ def test_padding_holds_no_worker_thread():
         async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
             async def timed(q):
                 t = time.monotonic()
-                r = await client.post("/query", json={"query": q, "user_id": 1})
+                r = await client.post("/query", json={"query": q}, headers=as_user(1))
                 return r.json()["text"], time.monotonic() - t
 
             started = time.monotonic()

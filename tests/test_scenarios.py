@@ -27,6 +27,7 @@ from src.graph.state import (
     UserContext,
 )
 from src.llm.fake import FakeChatModel
+from tests.helpers import as_user
 
 ALEX = UserContext(id=1, role="support", dept="support", clearance_level=0)
 
@@ -104,7 +105,7 @@ def test_scenario_1_answer_spans_two_platforms_and_cites_both():
         audit=lambda s: {"audit_events": []},
     )
     client = TestClient(create_app(nodes=nodes, user_loader=lambda uid: ALEX))
-    r = client.post("/query", json={"query": "How long to contest a chargeback?", "user_id": 1})
+    r = client.post("/query", json={"query": "How long to contest a chargeback?"}, headers=as_user(1))
 
     assert r.status_code == 200
     body = r.json()
@@ -161,7 +162,7 @@ def test_scenario_3_restricted_match_refuses_without_revealing_anything():
     nodes = _real_nodes(chat, retrieval=retrieval, escalation=escalation, audit=audit)
     client = TestClient(create_app(nodes=nodes, user_loader=lambda uid: ALEX))
     r = client.post(
-        "/query", json={"query": "What triggers an AML escalation review?", "user_id": 1}
+        "/query", json={"query": "What triggers an AML escalation review?"}, headers=as_user(1)
     )
 
     assert r.status_code == 200
@@ -203,7 +204,7 @@ def test_scenario_3_never_puts_restricted_content_in_a_prompt():
         audit=lambda s: {"audit_events": []},
     )
     TestClient(create_app(nodes=nodes, user_loader=lambda uid: ALEX)).post(
-        "/query", json={"query": "What triggers an AML escalation review?", "user_id": 1}
+        "/query", json={"query": "What triggers an AML escalation review?"}, headers=as_user(1)
     )
 
     # Only the Router was ever prompted; the Synthesizer and Verifier never ran.
@@ -254,10 +255,10 @@ def test_a_restricted_refusal_has_the_same_bytes_as_having_no_answer():
         return TestClient(create_app(nodes=nodes, user_loader=lambda uid: ALEX))
 
     restricted = client(restricted_retrieval).post(
-        "/query", json={"query": "What triggers an AML escalation review?", "user_id": 1}
+        "/query", json={"query": "What triggers an AML escalation review?"}, headers=as_user(1)
     )
     unanswerable = client(empty_retrieval).post(
-        "/query", json={"query": "What is our parental leave policy?", "user_id": 1}
+        "/query", json={"query": "What is our parental leave policy?"}, headers=as_user(1)
     )
 
     assert restricted.status_code == unanswerable.status_code == 200

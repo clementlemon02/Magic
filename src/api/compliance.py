@@ -44,12 +44,73 @@ class PermissionChangeResult(BaseModel):
     changed: int
 
 
+class RequestSummary(BaseModel):
+    """One request in the officer's worklist. Carries no explanation — that is still
+    only readable one request at a time, through /audit/{request_id}, and that read is
+    itself recorded."""
+
+    request_id: str
+    at: datetime
+    user_id: int | None
+    query: str
+    route: str | None
+    escalated: bool
+    reason: str | None
+
+
+class SourceStatus(BaseModel):
+    """One connector, as the admin screen shows it."""
+
+    platform: SourcePlatform
+    documents: int
+    chunks: int
+    restricted: int
+    grants: int
+    last_ingested: datetime | None
+
+
+class Grant(BaseModel):
+    source_platform: SourcePlatform
+    source_ref: str
+    sensitivity: str | None
+    granted_at: datetime
+
+
 class ChainStatus(BaseModel):
     ok: bool
     rows_checked: int
     first_bad_id: int | None = None
     problem: str | None = None
 
+
+SOURCES_SQL = """
+    SELECT d.source_platform,
+           count(DISTINCT d.id)                                             AS documents,
+           count(c.id)                                                      AS chunks,
+           count(DISTINCT d.id) FILTER (WHERE d.sensitivity = 'restricted') AS restricted,
+           max(d.created_at)                                                AS last_ingested
+    FROM documents AS d
+    LEFT JOIN document_chunks AS c ON c.document_id = d.id
+    GROUP BY d.source_platform
+    ORDER BY d.source_platform
+"""
+
+GRANT_COUNTS_SQL = """
+    SELECT source_platform, count(*) AS grants
+    FROM permissions WHERE revoked_at IS NULL
+    GROUP BY source_platform
+"""
+
+# A person's live grants. Sensitivity comes from the document, so the screen can warn
+# before someone revokes the one thing an officer actually needs.
+GRANTS_FOR_SQL = """
+    SELECT p.source_platform, p.source_ref, d.sensitivity, p.granted_at
+    FROM permissions AS p
+    LEFT JOIN documents AS d
+      ON d.source_platform = p.source_platform AND d.source_ref = p.source_ref
+    WHERE p.user_id = %(user_id)s AND p.revoked_at IS NULL
+    ORDER BY d.sensitivity DESC NULLS LAST, p.source_platform, p.source_ref
+"""
 
 REVOKE_SQL = """
     UPDATE permissions SET revoked_at = now()
@@ -82,16 +143,20 @@ def _explanation_from(request_id: str, events: list[AuditEvent]) -> ComplianceEx
     )
 
 
-def build_router(user_loader: Callable, connect: Callable = audit._connect) -> APIRouter:
+def build_router(
+    user_loader: Callable, connect: Callable = audit._connect, *, officer: Callable | None = None
+) -> APIRouter:
+    """`officer` comes from src/api/auth.py, so one place decides who an officer is.
+
+    The fallback below exists only for a caller that builds this router on its own;
+    create_app always passes the real one.
+    """
     router = APIRouter()
 
-    def officer(x_user_id: int = Header()) -> UserContext:
-        user = user_loader(x_user_id)
-        # Same answer for an unknown id and a non-officer: this is not a way to probe
-        # which user ids exist.
-        if user is None or user.role != COMPLIANCE_ROLE:
-            raise HTTPException(status_code=403, detail="Compliance role required")
-        return user
+    if officer is None:  # pragma: no cover - create_app always supplies it
+        from src.api.auth import build_dependencies
+
+        _, officer = build_dependencies(user_loader)
 
     def record(conn, user: UserContext, event_type: str, payload: dict) -> None:
         event = AuditEvent(event_type=event_type, payload=payload, occurred_at=datetime.now(UTC))
@@ -101,6 +166,16 @@ def build_router(user_loader: Callable, connect: Callable = audit._connect) -> A
     async def verify(user: UserContext = Depends(officer)) -> ChainStatus:
         report = await run_in_threadpool(audit.verify_audit_chain, connect)
         return ChainStatus(**report.__dict__)
+
+    @router.get("/audit/recent", response_model=list[RequestSummary])
+    async def recent(days: int = 7, limit: int = 100, user: UserContext = Depends(officer)):
+        # Declared before /audit/{request_id}: FastAPI matches in order, and "recent"
+        # would otherwise be taken for a request id and 422 on the UUID parse.
+        since = datetime.now(UTC) - timedelta(days=days)
+        rows = await run_in_threadpool(
+            audit.recent_requests, since, limit=min(limit, 500), connect=connect
+        )
+        return [RequestSummary(**row) for row in rows]
 
     @router.get("/audit/{request_id}", response_model=ComplianceExplanation)
     async def inquiry(request_id: uuid.UUID, user: UserContext = Depends(officer)):
@@ -122,6 +197,35 @@ def build_router(user_loader: Callable, connect: Callable = audit._connect) -> A
             changed = conn.execute(sql, body.model_dump()).rowcount
             record(conn, user, event_type, {**body.model_dump(), "changed": changed})
         return changed
+
+    @router.get("/admin/sources", response_model=list[SourceStatus])
+    async def sources(user: UserContext = Depends(officer)):
+        def read() -> list[SourceStatus]:
+            with connect() as conn:
+                rows = conn.execute(SOURCES_SQL).fetchall()
+                counts = dict(conn.execute(GRANT_COUNTS_SQL).fetchall())
+            return [
+                SourceStatus(
+                    platform=platform, documents=documents, chunks=chunks,
+                    restricted=restricted, grants=counts.get(platform, 0),
+                    last_ingested=last_ingested,
+                )
+                for platform, documents, chunks, restricted, last_ingested in rows
+            ]
+
+        return await run_in_threadpool(read)
+
+    @router.get("/admin/permissions", response_model=list[Grant])
+    async def grants(user_id: int, user: UserContext = Depends(officer)):
+        def read() -> list[Grant]:
+            with connect() as conn:
+                rows = conn.execute(GRANTS_FOR_SQL, {"user_id": user_id}).fetchall()
+            return [
+                Grant(source_platform=p, source_ref=r, sensitivity=s, granted_at=g)
+                for p, r, s, g in rows
+            ]
+
+        return await run_in_threadpool(read)
 
     @router.post("/admin/permissions/revoke", response_model=PermissionChangeResult)
     async def revoke(body: PermissionChange, user: UserContext = Depends(officer)):

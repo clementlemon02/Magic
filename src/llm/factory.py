@@ -43,6 +43,8 @@ def get_chat_model():
             base_url=s.ollama_base_url,
             temperature=0,
             timeout=s.llm_timeout_seconds,
+            # Keeps the model resident between questions; see the setting's note.
+            keep_alive=s.ollama_keep_alive,
         )
     return ChatHunyuan(
         hunyuan_app_id=s.hunyuan_app_id,
@@ -135,5 +137,8 @@ def get_embeddings():
     if s.llm_backend == "ollama":
         from langchain_community.embeddings import OllamaEmbeddings
 
+        # No keep_alive here: this langchain_community OllamaEmbeddings forbids the
+        # field. It matters far less anyway — mxbai-embed-large is 670MB against the
+        # chat model's 4.7GB, and a reload of it is milliseconds, not seconds.
         return OllamaEmbeddings(model=s.ollama_embedding_model, base_url=s.ollama_base_url)
     return HunyuanEmbeddings()
