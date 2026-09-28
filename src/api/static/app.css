@@ -31,6 +31,9 @@
   --r-control: 6px;   /* anything you click or type into */
   --r-surface: 10px;  /* a real container */
   --r-pill: 999px;    /* a tag or a chip */
+
+  /* Inline so it needs no network and inherits the text colour. */
+  --lock: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M4 7h8v7H4z"/><path d="M6 7V5a2 2 0 014 0v2" fill="none" stroke="black" stroke-width="1.6"/></svg>');
 }
 
 @media (prefers-color-scheme: dark) {
@@ -434,6 +437,21 @@ tbody tr:hover { background: var(--surface); }
   background: var(--raised); font-size: 14.5px; line-height: 1.6;
 }
 .finding b { color: var(--ink); font-weight: 500; }
+nav a.locked { opacity: .55; }
+nav a.locked::after {
+  content: ""; display: inline-block; width: 9px; height: 9px; margin-left: 6px;
+  vertical-align: -1px; background: currentColor;
+  -webkit-mask: var(--lock) center/contain no-repeat; mask: var(--lock) center/contain no-repeat;
+}
+
+.guide { margin-top: 22px; }
+.guide dl { margin: 0; display: grid; grid-template-columns: 96px 1fr; gap: 10px 16px; }
+.guide dt { font-weight: 500; font-size: 14px; }
+.guide dd { margin: 0; font-size: 14px; line-height: 1.6; color: var(--muted); }
+.guide dd b { color: var(--ink); font-weight: 500; }
+.guide p { margin: 16px 0 0; font-size: 13.5px; line-height: 1.6; color: var(--muted); max-width: 66ch; }
+@media (max-width: 560px) { .guide dl { grid-template-columns: 1fr; gap: 4px 0; } }
+
 .identity { display: flex; align-items: center; gap: 8px; }
 .identity .who {
   display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%;

@@ -182,12 +182,29 @@ def test_every_page_carries_the_same_navigation():
 
 
 def test_each_page_marks_itself_as_the_current_one():
+    """Matched per link rather than as one adjacent string: other attributes sit
+    between href and aria-current now, and a brittle match here just fails on the
+    next attribute anyone adds."""
     import re
 
     for name, path in (("ask", "/"), ("dashboard", "/dashboard"),
                        ("audit", "/audit"), ("sources", "/sources")):
         nav = re.search(r"<nav>(.*?)</nav>", PAGES[name].read_text(encoding="utf-8"), re.S).group(1)
-        assert f'href="{path}" aria-current="page"' in nav, name
+        current = [a for a in re.findall(r"<a\s[^>]*>", nav) if 'aria-current="page"' in a]
+        assert len(current) == 1, f"{name} marks {len(current)} links as current"
+        assert f'href="{path}"' in current[0], name
+
+
+def test_the_officer_only_pages_say_so_in_the_nav():
+    """Three of the four pages refuse anyone who is not a compliance officer. Finding
+    that out by clicking is the thing a first-time reader trips on."""
+    import re
+
+    for name, page in PAGES.items():
+        nav = re.search(r"<nav>(.*?)</nav>", page.read_text(encoding="utf-8"), re.S).group(1)
+        marked = {re.search(r'href="([^"]+)"', a).group(1)
+                  for a in re.findall(r"<a\s[^>]*>", nav) if "data-officer" in a}
+        assert marked == {"/dashboard", "/audit", "/sources"}, f"{name}: {marked}"
 
 
 def _rule(css: str, selector: str) -> str:

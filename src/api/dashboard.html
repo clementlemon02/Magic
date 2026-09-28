@@ -13,9 +13,9 @@
   <span class="brand"><span class="dot"></span>Internal Brain <small>Aurelia</small></span>
   <nav>
     <a href="/">Ask</a>
-    <a href="/dashboard" aria-current="page">Gaps</a>
-    <a href="/audit">Audit</a>
-    <a href="/sources">Sources</a>
+    <a href="/dashboard" data-officer="1" aria-current="page">Gaps</a>
+    <a href="/audit" data-officer="1">Audit</a>
+    <a href="/sources" data-officer="1">Sources</a>
   </nav>
   <span class="spacer"></span>
   <button class="icon-button" id="theme" type="button" aria-label="Switch theme" title="Switch theme">◐</button>
@@ -172,10 +172,9 @@ async function load() {
   if (response.status === 403) {
     // Refusing is the product, not an error to hide.
     rows = [];
-    $("out").innerHTML = `<div class="note alert"><b>User ${esc(IB.active())} is not a
-      compliance officer.</b> These reports are built from what people were refused, and the
-      access-gap half names restricted documents and who wanted them — so they are
-      officer-only. Try user 2 or 7.</div>`;
+    $("out").innerHTML = `<div class="note alert"><b>This page is for a compliance officer.</b> These reports are built from what people were refused, and the access-gap half names restricted documents and who wanted them. You are signed in as user ${esc(IB.active())}, who is not one —
+  use <b>Add identity</b> in the header to sign in as
+  <code>marcus.lim@aurelia.example</code> (password <code>demo</code>).</div>`;
     return;
   }
   if (!response.ok) {

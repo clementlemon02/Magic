@@ -95,9 +95,31 @@ const IB = (() => {
         </div>
       </form>
       <div class="note" style="margin-top:18px"><b>Demo identities.</b> Every persona's
-        password is <code>demo</code>. <code>alex.tan@</code> is support,
-        <code>marcus.lim@</code> is a compliance officer. Sign in as one, then add the
-        other from the header to compare them side by side.</div>`;
+        password is <code>demo</code>. <code>alex.tan@aurelia.example</code> is a support
+        agent; <code>marcus.lim@aurelia.example</code> is a compliance officer. Sign in as
+        one, then use <b>Add identity</b> in the header to hold the other too.</div>
+
+      <div class="guide">
+        <span class="section">What the four pages are</span>
+        <dl>
+          <dt>Ask</dt>
+          <dd>Ask a question across Confluence, Jira, Slack and Drive. You get an answer
+            you are allowed to see, or one refusal. <b>Anyone.</b></dd>
+          <dt>Gaps</dt>
+          <dd>Where the permission model is wrong. One half is documents people wanted and
+            could not see — fix the grant. The other is questions nothing answers — write
+            the page. <b>Compliance officer.</b></dd>
+          <dt>Audit</dt>
+          <dd>Every request, hash-chained. The only place the real reason for a refusal can
+            be read back, and reading it is itself recorded. <b>Compliance officer.</b></dd>
+          <dt>Sources</dt>
+          <dd>What is connected, how fresh it is, and who currently may read what. Revoke a
+            grant and the next question reflects it. <b>Compliance officer.</b></dd>
+        </dl>
+        <p>Three of the four are officer-only, so signing in as the support agent and
+          clicking around will get you refused — that is the product working, not a fault.
+          Hold both identities to see each side.</p>
+      </div>`;
     document.getElementById("ib-signin").addEventListener("submit", async (e) => {
       e.preventDefault();
       try {
@@ -129,6 +151,13 @@ const IB = (() => {
       <button class="copy" type="button" id="ib-add">Add identity</button>
       <button class="copy" type="button" id="ib-out">Sign out</button>`;
     bar.after(chip);
+    // Say which pages will refuse you before you click them.
+    if (me.role !== "compliance") {
+      for (const link of document.querySelectorAll("nav a[data-officer]")) {
+        link.classList.add("locked");
+        link.title = "Compliance officers only — add that identity from the header";
+      }
+    }
     document.getElementById("ib-out").addEventListener("click", () => {
       forget(me.id);
       location.reload();
