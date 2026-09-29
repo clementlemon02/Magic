@@ -37,6 +37,11 @@ class CacheEntry:
     fingerprint: str
     response: AskerResponse
     stored_at: datetime
+    # The route that produced this answer, replayed into the audit trail on a hit.
+    # Without it a hit is logged with initial_state's `rag` placeholder, so a cached
+    # sql or decline request was recorded as a rag one — wrong rows in a log whose
+    # whole selling point is that it can be trusted.
+    route: str | None = None
 
 
 def _cosine(a: list[float], b: list[float]) -> float:
@@ -100,6 +105,11 @@ class PermissionAwareCache:
         return hashlib.sha256(material.encode()).hexdigest()
 
     def get(self, query: str, user: UserContext) -> AskerResponse | None:
+        """The cached answer, or None. `lookup` when you also need how it was routed."""
+        entry = self.lookup(query, user)
+        return entry.response if entry else None
+
+    def lookup(self, query: str, user: UserContext) -> CacheEntry | None:
         digest = self.fingerprint(user)
         candidates = [e for e in self._entries if e.fingerprint == digest]
         if not candidates:
@@ -115,17 +125,24 @@ class PermissionAwareCache:
 
         if best is not None and score >= self.similarity_threshold:
             self.hits += 1
-            return best.response
+            return best
         self.misses += 1
         return None
 
-    def put(self, query: str, user: UserContext, response: AskerResponse) -> None:
+    def put(
+        self,
+        query: str,
+        user: UserContext,
+        response: AskerResponse,
+        route: str | None = None,
+    ) -> None:
         self._entries.append(
             CacheEntry(
                 vector=self._embed(query),
                 fingerprint=self.fingerprint(user),
                 response=response,
                 stored_at=datetime.now(UTC),
+                route=route,
             )
         )
         if len(self._entries) > self.max_entries:

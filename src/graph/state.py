@@ -13,7 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 SourcePlatform = Literal["confluence", "jira", "slack", "drive", "internal"]
 Sensitivity = Literal["internal", "restricted"]
-Route = Literal["rag", "sql", "clarify", "escalate"]
+Route = Literal["rag", "sql", "clarify", "decline", "escalate"]
 AuditEventType = Literal[
     "query_received",
     # One per node the graph ran, written as it ran (§4). The rows below are a
@@ -46,6 +46,18 @@ EscalationReason = Literal[
 # The exact asker-facing refusal (CLAUDE.md §5). Lives here because Escalation
 # writes it and the API layer asserts on it — a judged demo moment, so one string.
 GENERIC_REFUSAL = "I don't have an answer you're permitted to see for this request."
+
+# The `decline` route's reply: the message was not a question about this company's
+# knowledge at all. Distinct from GENERIC_REFUSAL on purpose, and safe to be
+# distinct: the Router picks this from the query TEXT alone, before retrieval and
+# before any permission check, so it carries nothing about the corpus or the
+# caller's access. GENERIC_REFUSAL is the one that must stay uniform, because that
+# one IS decided by what the caller may see.
+DECLINE_REPLY = (
+    "I answer questions about Aurelia's internal knowledge — documents in Confluence, "
+    "Jira, Slack and Drive, and figures from the transactions table. Ask me something "
+    "from there and I'll answer what your permissions allow."
+)
 
 
 class UserContext(BaseModel):
@@ -161,6 +173,22 @@ class GraphState(TypedDict):
     audit_events: list[AuditEvent]
 
 
+class Stage(BaseModel):
+    """One node the graph ran, how long it took, and what it did.
+
+    `detail` is a few words for the pipeline view — "8 passages", "grounded 0.94".
+    Safe because a Stage only ever reaches an asker on an ANSWER: `build_response`
+    gives a refusal an empty trace, so nothing here can describe a withheld request.
+    Counts permitted evidence only, never how much was filtered out — that number
+    would say restricted material exists, which is the §5 leak in another costume.
+    """
+
+    node: str
+    hop: int
+    ms: float
+    detail: str | None = None
+
+
 class AskerResponse(BaseModel):
     """Everything the asker is allowed to see.
 
@@ -173,6 +201,18 @@ class AskerResponse(BaseModel):
 
     text: str
     citations: list[Citation] = Field(default_factory=list)
+
+    # What the graph did, for the asker to watch it work. Answers only, and for the
+    # same reason citations are: `build_response` gives a refusal GENERIC_REFUSAL and
+    # nothing else, so this is empty on every refusal by construction.
+    #
+    # It must stay that way. A trace on a refusal reconstructs the cause the wording
+    # withholds — a permission conflict short-circuits at retrieval on hop 1, an
+    # unsupported answer grinds through three — which is the same leak that made the
+    # refusal constant-time in the first place. Streaming these live would leak it
+    # too, over the network rather than in the payload; the UI replays them after the
+    # response instead, so the clock outside is unchanged.
+    trace: list[Stage] = Field(default_factory=list)
 
 
 class ComplianceExplanation(BaseModel):

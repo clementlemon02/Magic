@@ -5,6 +5,8 @@ the caller from the database, the two gap reports require the compliance role �
 these check that the shells really are inert, rather than that they look right.
 """
 
+from pathlib import Path
+
 from fastapi.testclient import TestClient
 
 from src.api.ui import PAGES, build_router
@@ -182,12 +184,29 @@ def test_every_page_carries_the_same_navigation():
 
 
 def test_each_page_marks_itself_as_the_current_one():
+    """Matched per link rather than as one adjacent string: other attributes sit
+    between href and aria-current now, and a brittle match here just fails on the
+    next attribute anyone adds."""
     import re
 
     for name, path in (("ask", "/"), ("dashboard", "/dashboard"),
                        ("audit", "/audit"), ("sources", "/sources")):
         nav = re.search(r"<nav>(.*?)</nav>", PAGES[name].read_text(encoding="utf-8"), re.S).group(1)
-        assert f'href="{path}" aria-current="page"' in nav, name
+        current = [a for a in re.findall(r"<a\s[^>]*>", nav) if 'aria-current="page"' in a]
+        assert len(current) == 1, f"{name} marks {len(current)} links as current"
+        assert f'href="{path}"' in current[0], name
+
+
+def test_the_officer_only_pages_say_so_in_the_nav():
+    """Three of the four pages refuse anyone who is not a compliance officer. Finding
+    that out by clicking is the thing a first-time reader trips on."""
+    import re
+
+    for name, page in PAGES.items():
+        nav = re.search(r"<nav>(.*?)</nav>", page.read_text(encoding="utf-8"), re.S).group(1)
+        marked = {re.search(r'href="([^"]+)"', a).group(1)
+                  for a in re.findall(r"<a\s[^>]*>", nav) if "data-officer" in a}
+        assert marked == {"/dashboard", "/audit", "/sources"}, f"{name}: {marked}"
 
 
 def _rule(css: str, selector: str) -> str:
@@ -257,3 +276,42 @@ def test_the_comparison_never_claims_a_deadline_the_clock_contradicts():
     page = PAGES["ask"].read_text(encoding="utf-8")
     assert "took <= DEADLINE + 0.6" in page
     assert "ran <b>past</b> the" in page
+
+
+def test_the_clock_owns_its_own_interval():
+    """Two clocks must not share one id. `ticking` used to live at module scope, so
+    the second question's startClock overwrote it and the first question's stop()
+    cleared the SECOND interval — the first ticked on forever, writing an unrelated
+    number into the one readout on the page. It showed 49.08s beside a refusal that
+    had in fact been held at 4.0s, which is the page's central claim inverted by a
+    stale timer rather than by wrong copy: the two tests above check the copy, and
+    both passed while the number beside it was nonsense."""
+    page = PAGES["ask"].read_text(encoding="utf-8")
+    assert "let ticking" not in page, "the interval id is shared between clocks again"
+    assert "let tick = null;" in page and "clearInterval(tick)" in page
+
+
+def test_the_pipeline_names_every_agent_the_graph_records():
+    """The waterfall lists agents a request did NOT use, which is the point of it —
+    a view showing only the four that ran never says what the other four are for. So
+    the roster has to track the graph: add a node and this fails until the page knows
+    about it. `audit` is excluded because it writes the trail and is not recorded in
+    it, so it can never appear in a trace."""
+    import re
+
+    graph = (Path(__file__).parents[1] / "src/graph/graph.py").read_text(encoding="utf-8")
+    body = graph[graph.index("for name, node in ("):graph.index('g.add_node(name, _recorded')]
+    recorded = set(re.findall(r'\("(\w+)",', body))
+
+    page = PAGES["ask"].read_text(encoding="utf-8")
+    listed = set(re.findall(r'\["(\w+)",\s*"[A-Z]', page[page.index("const AGENTS = ["):]))
+    assert recorded == listed, f"graph records {recorded - listed}, page lists {listed - recorded}"
+
+
+def test_the_bar_class_is_not_the_page_header():
+    """`.bar` is the header's own bare selector. A lane that used it inherited the
+    nav's padding and ground: 43px rows under white boxes overlapping the header."""
+    page = PAGES["ask"].read_text(encoding="utf-8")
+    flow = page[page.index("function waterfall("):page.index("function pipeline(")]
+    assert 'class="bar"' not in flow, "a lane is using the page header's class again"
+    assert 'class="span"' in flow

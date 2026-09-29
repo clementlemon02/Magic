@@ -13,9 +13,9 @@
   <span class="brand"><span class="dot"></span>Internal Brain <small>Aurelia</small></span>
   <nav>
     <a href="/">Ask</a>
-    <a href="/dashboard">Gaps</a>
-    <a href="/audit" aria-current="page">Audit</a>
-    <a href="/sources">Sources</a>
+    <a href="/dashboard" data-officer="1">Gaps</a>
+    <a href="/audit" data-officer="1" aria-current="page">Audit</a>
+    <a href="/sources" data-officer="1">Sources</a>
   </nav>
   <span class="spacer"></span>
   <button class="icon-button" id="theme" type="button" aria-label="Switch theme" title="Switch theme">◐</button>
@@ -60,9 +60,9 @@ const esc = (s) => String(s).replace(/[&<>"]/g, (c) =>
 let requests = [];
 let current = null;
 
-const forbidden = () => `<div class="note alert"><b>User ${esc(IB.active())} is not a
-  compliance officer.</b> A request id is the key to an explanation, so browsing them is
-  officer-only. Try user 2 or 7.</div>`;
+const forbidden = () => `<div class="note alert"><b>This page is for a compliance officer.</b> A request id is the key to an explanation, so browsing them is officer-only. You are signed in as user ${esc(IB.active())}, who is not one —
+  use <b>Add identity</b> in the header to sign in as
+  <code>marcus.lim@aurelia.example</code> (password <code>demo</code>).</div>`;
 
 // Which events carry a verdict worth colouring. Everything else is process.
 const TONE = { escalation: "bad", permission_conflict: "bad", source_recheck_denied: "bad",

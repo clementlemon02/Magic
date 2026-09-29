@@ -95,7 +95,13 @@ def test_refusal_body_contains_no_reason():
     body = r.json()
     assert body["text"] == GENERIC_REFUSAL
     assert body["citations"] == []
-    assert set(body) == {"text", "citations"}, f"unexpected keys on the wire: {set(body)}"
+    # A tripwire on the shape, so a field added to AskerResponse has to be considered
+    # here before it can ride out on a refusal. `trace` joined it when the UI grew a
+    # pipeline view: empty on every refusal, because a trace reconstructs the cause
+    # the wording withholds — a permission conflict stops at retrieval on hop 1, an
+    # unsupported answer grinds through three.
+    assert set(body) == {"text", "citations", "trace"}, f"unexpected keys: {set(body)}"
+    assert body["trace"] == []
 
     serialised = r.text.lower()
     for leak in ("explanation", "aml", "compliance", "restricted", "conflict"):
@@ -167,3 +173,68 @@ async def test_a_failed_warm_up_is_a_slow_first_answer_not_a_broken_start(monkey
 
     monkeypatch.setattr(main, "run_in_threadpool", lambda fn: unreachable())
     await main._warm(Settings(_env_file=None, warm_on_startup=True))  # must not raise
+
+
+def test_an_answer_carries_its_trace_and_a_refusal_does_not():
+    """The pipeline the UI replays. On an answer it is what the graph did; on a
+    refusal it is empty, because its shape names the cause the sentence withholds."""
+    from src.graph.graph import build_response
+    from src.graph.state import AuditEvent
+
+    ran = [
+        AuditEvent(event_type="node_transition",
+                   payload={"node": "retrieval", "hop": 1, "ms": 48.3},
+                   occurred_at=datetime.now(UTC)),
+        AuditEvent(event_type="node_transition",
+                   payload={"node": "verifier", "hop": 1, "ms": 2361.9},
+                   occurred_at=datetime.now(UTC)),
+    ]
+    answered = build_response(
+        {"escalated": False, "final_answer": "45 days.", "citations": [], "audit_events": ran}
+    )
+    assert [s.node for s in answered.trace] == ["retrieval", "verifier"]
+    assert answered.trace[1].ms == 2361.9
+
+    refused = build_response(
+        {"escalated": True, "final_answer": "45 days.", "citations": [], "audit_events": ran}
+    )
+    assert refused.trace == []
+
+
+def test_a_cache_hit_reports_the_cache_not_the_run_it_replays():
+    """The cached response carries the trace of the request that FILLED the cache.
+    Passing it through would show seconds of retrieval and synthesis that did not
+    happen on this request — a plausible, wrong number next to a 0.1s clock."""
+    from src.graph.state import AskerResponse, Stage
+
+    stored = AskerResponse(
+        text="45 days.",
+        citations=[_citation()],
+        trace=[Stage(node="synthesizer", hop=1, ms=2704.4)],
+    )
+
+    from src.cache import CacheEntry
+
+    entry = CacheEntry(
+        vector=[], fingerprint="f", response=stored,
+        stored_at=datetime.now(UTC), route="sql",
+    )
+
+    class AlwaysHits:
+        def lookup(self, query, user):
+            return entry
+
+        def put(self, query, user, response, route=None):
+            raise AssertionError("a hit must not re-cache")
+
+    audited = {}
+    nodes = _nodes(audit=lambda s: audited.update(s) or {"audit_events": []})
+    app = create_app(nodes=nodes, user_loader=lambda uid: ALEX, cache=AlwaysHits())
+    body = TestClient(app).post("/query", json={"query": "anything"}, headers=as_user(1)).json()
+
+    assert body["text"] == "45 days."
+    assert [s["node"] for s in body["trace"]] == ["cache"]
+    assert stored.trace[0].node == "synthesizer", "the cached entry was mutated"
+    # The audit records how the answer was ORIGINALLY produced. Without this it gets
+    # initial_state's "rag" placeholder, because the Router never ran.
+    assert audited["route"] == "sql", "a cached sql answer was audited as rag"

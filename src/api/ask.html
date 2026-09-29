@@ -13,9 +13,9 @@
   <span class="brand"><span class="dot"></span>Internal Brain <small>Aurelia</small></span>
   <nav>
     <a href="/" aria-current="page">Ask</a>
-    <a href="/dashboard">Gaps</a>
-    <a href="/audit">Audit</a>
-    <a href="/sources">Sources</a>
+    <a href="/dashboard" data-officer="1">Gaps</a>
+    <a href="/audit" data-officer="1">Audit</a>
+    <a href="/sources" data-officer="1">Sources</a>
   </nav>
   <span class="spacer"></span>
   <button class="icon-button" id="theme" type="button" aria-label="Switch theme" title="Switch theme">◐</button>
@@ -27,45 +27,26 @@
     what your own permissions allow — the filter runs in the database, before any of it
     reaches the model.</p>
 
-  <form class="panel ask" id="form">
-    <label class="label" for="q">Question</label>
-    <textarea id="q" name="q" rows="2" spellcheck="false"
-      placeholder="How long do customers have to contest a chargeback?"></textarea>
+  <div class="thread" id="thread" aria-live="polite"></div>
 
-    <div class="controls">
-      <div class="mode" role="tablist" aria-label="Who asks">
-        <button id="mode-one" type="button" role="tab" aria-selected="true">One caller</button>
-        <button id="mode-two" type="button" role="tab" aria-selected="false">Side by side</button>
+  <div class="composer">
+    <form class="panel" id="form">
+      <textarea id="q" name="q" rows="2" spellcheck="false"
+        placeholder="Ask anything — try &quot;What triggers an AML escalation review?&quot;"></textarea>
+      <div class="controls">
+        <div class="mode" role="tablist" aria-label="Who asks">
+          <button id="mode-one" type="button" role="tab" aria-selected="true">One caller</button>
+          <button id="mode-two" type="button" role="tab" aria-selected="false">Side by side</button>
+        </div>
+        <span class="asking" id="asking"></span>
+        <button id="go" type="submit">Ask</button>
+        <div class="readout" id="clock" hidden>
+          <span class="big" id="elapsed">0.00</span><span class="unit">seconds</span>
+        </div>
       </div>
-      <span class="asking" id="asking"></span>
-      <button id="go" type="submit">Ask</button>
-      <div class="readout" id="clock" hidden>
-        <span class="big" id="elapsed">0.00</span><span class="unit">seconds</span>
-      </div>
-    </div>
-  </form>
-
-  <div class="try">
-    <span class="section">Try one</span>
-    <div class="chips" id="chips"></div>
+      <div class="chips" id="chips"></div>
+    </form>
   </div>
-
-  <section class="result" id="out" aria-live="polite">
-    <!-- Replaced by the first answer. An empty page teaches a first-time reader
-         nothing about what this does, and there is nothing real to show until
-         someone asks. -->
-    <div class="awaiting">
-      <span class="section">What comes back</span>
-      <ul>
-        <li><b>An answer, or one refusal.</b> Every refusal is the same sentence and
-          takes the same time, so neither the words nor the clock says why.</li>
-        <li><b>The sources behind it</b> — open one to read the passage the wording came
-          from, or the query that counted the rows.</li>
-        <li><b>How long it took.</b> A refusal is held to a fixed deadline; an answer
-          is not.</li>
-      </ul>
-    </div>
-  </section>
 </main>
 
 <script>
@@ -98,21 +79,136 @@ $("chips").addEventListener("click", (e) => {
   ask();
 });
 
+/* --- the pipeline ----------------------------------------------------------
+   The stages the graph can run, in order. While a question is in flight they are
+   shown as pending, because the outcome is not known yet; once the response lands
+   its own trace fills in what actually ran and how long each took.
+
+   Not streamed, deliberately. A stage arriving live would let anyone reconstruct
+   why a refusal happened from the shape alone — a permission conflict stops at
+   retrieval on hop 1, an unsupported answer grinds through three — which is exactly
+   what the constant-time refusal exists to hide. Replaying after the response
+   leaves the clock outside unchanged. */
+/* Every agent in the graph, in the order a request meets them. The ones a given
+   request did not use are shown too, greyed: "our agents" is the point, and a list
+   that only ever shows four of them never says what the other four are for. */
+const AGENTS = [
+  ["router",       "Router",        "picks the handler"],
+  ["retrieval",    "Retrieval",     "ACL-filtered vector search"],
+  ["sql_tool",     "SQL Tool",      "templated query, no model-written SQL"],
+  ["clarification","Clarification", "asks one question back"],
+  ["synthesizer",  "Synthesizer",   "drafts from permitted evidence"],
+  ["verifier",     "Verifier",      "judges every claim"],
+  ["escalation",   "Escalation",    "refuses, generically"],
+  ["answer",       "Answer",        "assembles the reply"],
+];
+const LABEL = new Map(AGENTS.map(([k, name, blurb]) => [k, { name, blurb }]));
+
+/* A waterfall rather than a row of pills: the bar widths are the measured times, so
+   where a request actually spends itself is visible rather than stated. Replayed
+   from the response's own trace and never streamed — a stage arriving live would let
+   anyone reconstruct why a refusal happened from its shape, which is what the
+   constant-time refusal exists to hide. */
+// The longest bar stops here, leaving the rest of the lane for its label. Scaled in
+// the width rather than capped with max-width: capping would squash every bar above
+// the cap onto the same length and quietly break the proportions the chart is for.
+// 72% because the side-by-side columns are half width, where "grounded 1.00" was
+// clipping to "g".
+const BAR_SPAN = 72;
+
+function waterfall(trace, seconds) {
+  const ran = new Map();
+  for (const s of trace) {
+    const prior = ran.get(s.node);
+    // A node that looped is one row carrying the total and the count, not four rows
+    // that each look like the whole of retrieval.
+    ran.set(s.node, prior
+      ? { ...prior, ms: prior.ms + s.ms, times: prior.times + 1, detail: s.detail || prior.detail }
+      : { ms: s.ms, times: 1, detail: s.detail });
+  }
+  const worked = [...ran.values()].reduce((a, s) => a + s.ms, 0);
+  const widest = Math.max(...[...ran.values()].map((s) => s.ms), 1);
+  const idle = seconds === null ? null : seconds * 1000 - worked;
+
+  const rows = AGENTS.map(([key, name, blurb]) => {
+    const s = ran.get(key);
+    if (!s) {
+      return `<div class="lane off" title="${esc(blurb)}">
+        <span class="who">${esc(name)}</span>
+        <span class="span"></span><span class="ms">not used</span></div>`;
+    }
+    return `<div class="lane" title="${esc(blurb)}">
+      <span class="who">${esc(name)}${s.times > 1 ? ` <b>×${s.times}</b>` : ""}</span>
+      <span class="span"><i style="width:${Math.max((s.ms / widest) * BAR_SPAN, 1.5)}%"></i>
+        ${s.detail ? `<em>${esc(s.detail)}</em>` : ""}</span>
+      <span class="ms">${Math.round(s.ms)}ms</span></div>`;
+  }).join("");
+
+  // Everything outside the nodes: HTTP, auth, the cache lookup, the fingerprint
+  // query. Named rather than left as a gap between two numbers that don't add up.
+  const overhead = idle !== null && idle > 40
+    ? `<div class="lane rest"><span class="who">elsewhere</span>
+       <span class="span"><em>request, auth, cache lookup</em></span>
+       <span class="ms">${Math.round(idle)}ms</span></div>` : "";
+
+  return `<div class="flow">${rows}${overhead}</div>`;
+}
+
+function pipeline(trace, { running = false, seconds = null } = {}) {
+  // Measured wall clock for THIS turn, kept with it. The composer readout only
+  // exists while a question is in flight.
+  const total = seconds === null ? "" :
+    `<span class="total">${seconds.toFixed(2)}s total</span>`;
+
+  if (running) {
+    return `<div class="pipeline"><span class="stage running">
+      <span class="bead"></span>running — the pipeline is replayed once it lands,
+      never streamed</span></div>`;
+  }
+  // A refusal carries no trace at all. Greyed-out stages read as "still loading";
+  // say instead that the trace is withheld, which is the actual reason and the same
+  // reason the sentence above it is generic.
+  if (!(trace && trace.length)) {
+    return `<div class="pipeline"><span class="stage withheld">
+      <span class="bead"></span>pipeline withheld — its shape names the cause</span>${total}</div>`;
+  }
+  // A hit runs no graph, so its trace is the one stage that did run. Worth naming:
+  // the key includes the caller's live grant set, so this answer was cached by
+  // someone with exactly this access — revoke a grant and the entry stops matching.
+  if (trace.length === 1 && trace[0].node === "cache") {
+    return `<div class="pipeline"><span class="stage on">
+      <span class="bead"></span>served from cache<span class="took">${
+        Math.round(trace[0].ms)}ms</span></span>
+      <span class="cache-why">cached against this caller's live permissions, not just the question</span>${total}</div>`;
+  }
+  return `<div class="pipeline stack">
+    <div class="pipehead"><span class="section">Agents that ran</span>${total}</div>
+    ${waterfall(trace, seconds)}</div>`;
+}
+
 /* --- asking --------------------------------------------------------------- */
 const REFUSAL = "I don't have an answer you're permitted";
-let ticking = null;
 
 function startClock() {
   const began = performance.now();
+  // The interval id is local to this closure. It used to live at module scope, so
+  // the second question's startClock overwrote it and the first question's stop()
+  // cleared the WRONG interval — the original ticked on forever, writing a number
+  // that had nothing to do with any request into the one readout on the page. On a
+  // screen whose whole claim is "this number is the guarantee", that is the worst
+  // possible place for a stale timer.
+  let tick = null;
   $("clock").hidden = false;
   $("elapsed").textContent = "0.00";
-  ticking = setInterval(() => {
+  tick = setInterval(() => {
     $("elapsed").textContent = ((performance.now() - began) / 1000).toFixed(2);
   }, 60);
   return () => {
-    clearInterval(ticking);
+    clearInterval(tick);
     const seconds = (performance.now() - began) / 1000;
-    $("elapsed").textContent = seconds.toFixed(2);
+    // The live readout belongs to the question in flight; once one lands its time
+    // is rendered into its own turn, where it stays true.
+    $("clock").hidden = true;
     return seconds;
   };
 }
@@ -133,19 +229,19 @@ function renderAnswer(reply, seconds, { bare = false } = {}) {
   const sources = reply.citations.length ? `
     <div class="sources">
       <span class="section">Sources</span>
-      ${reply.citations.map((c, i) => {
+      ${reply.citations.map((c) => {
         const evidence = c.passage || c.query;
         return `
         <div class="source">
           <span class="ref"><span class="plat">${esc(c.source_platform)}:</span>${esc(c.source_ref)}</span>
           <span class="title">${esc(c.title)}</span>
           <span class="actions">
-            ${evidence ? `<button class="copy" type="button" data-peek="${i}">Show ${
+            ${evidence ? `<button class="copy" type="button" data-peek>Show ${
               c.query ? "query" : "passage"}</button>` : ""}
             <button class="copy" type="button" data-ref="${esc(c.source_platform)}:${esc(c.source_ref)}">Copy</button>
           </span>
         </div>
-        ${evidence ? `<div class="evidence" id="peek-${i}" hidden>${
+        ${evidence ? `<div class="evidence" hidden>${
           c.query
             ? `<pre>${highlightAcl(c.query)}</pre>
                <p class="why">The highlighted predicate is the access control. It runs
@@ -236,6 +332,7 @@ function side(uid, result) {
         <span class="rule"></span>
       </div>
       ${scale(result.seconds, withheld)}
+      ${pipeline(result.reply.trace)}
       ${renderAnswer(result.reply, result.seconds, { bare: true })}
     </div>`;
 }
@@ -277,41 +374,53 @@ function finding(a, b) {
     which is the common case, and the one a security demo never shows.</div>`;
 }
 
+function turn(html, { mine = false } = {}) {
+  const node = document.createElement("div");
+  node.className = `turn ${mine ? "mine" : ""}`;
+  node.innerHTML = html;
+  $("thread").append(node);
+  node.scrollIntoView({ block: "end", behavior: "smooth" });
+  return node;
+}
+
 async function ask() {
   const query = $("q").value.trim();
   if (!query) { $("q").focus(); return; }
   const comparing = $("mode-two").getAttribute("aria-selected") === "true";
 
   $("go").disabled = true;
-  $("out").innerHTML = `<div class="answer pending">Working. A refusal is held to a fixed
-    deadline, so its timing cannot reveal why it was refused.</div>`;
+  $("q").value = "";
+  turn(`<div class="bubble">${esc(query)}</div>`, { mine: true });
+  const reply = turn(pipeline(null, { running: true }));
   const stop = startClock();
 
   try {
     if (!comparing) {
-      const { reply, seconds } = await run(IB.active(), query);
+      const { reply: body, seconds } = await run(IB.active(), query);
       stop();
-      $("out").innerHTML = renderAnswer(reply, seconds);
+      reply.innerHTML = pipeline(body.trace, { seconds }) + renderAnswer(body, seconds);
       return;
     }
 
     // Sequential, not parallel. One model serves one request at a time, so two in
-    // flight would queue and the second one's clock would show the wait rather than
-    // the work — and on a screen whose whole point is timing, that is a lie.
+    // flight would queue and the second column's clock would show the wait rather
+    // than the work — and on a screen whose whole point is timing, that is a lie.
     const [uidA, uidB] = IB.signedIn();
     const a = { uid: uidA, result: await run(uidA, query) };
     const b = { uid: uidB, result: await run(uidB, query) };
     stop();
-    $("out").innerHTML =
+    reply.innerHTML =
       `<div class="compare">${side(uidA, a.result)}${side(uidB, b.result)}</div>` +
       finding(a, b);
   } catch (error) {
     stop();
-    $("out").innerHTML = `<div class="note alert"><b>${esc(error.message)}</b>
+    reply.innerHTML = `<div class="note alert"><b>${esc(error.message)}</b>
       If the API is unreachable, start it with
       <code>uvicorn src.api.main:app --port 8000</code>.</div>`;
   } finally {
     $("go").disabled = false;
+    $("q").focus();
+    reply.scrollIntoView({ block: "end", behavior: "smooth" });
   }
 }
 
@@ -337,6 +446,11 @@ for (const [id, on] of [["mode-one", false], ["mode-two", true]]) {
 }
 describeIdentities();
 
+// Keep the thread clear of the sticky composer, whatever height it currently is.
+new ResizeObserver(([entry]) => {
+  document.documentElement.style.setProperty("--composer-h", `${entry.contentRect.height}px`);
+}).observe(document.querySelector(".composer"));
+
 $("form").addEventListener("submit", (e) => { e.preventDefault(); ask(); });
 $("q").addEventListener("keydown", (e) => {
   if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); ask(); }
@@ -344,10 +458,12 @@ $("q").addEventListener("keydown", (e) => {
 document.addEventListener("keydown", (e) => {
   if (e.key === "/" && document.activeElement !== $("q")) { e.preventDefault(); $("q").focus(); }
 });
-$("out").addEventListener("click", async (e) => {
+$("thread").addEventListener("click", async (e) => {
   const peek = e.target.closest("[data-peek]");
   if (peek) {
-    const box = $(`peek-${peek.dataset.peek}`);
+    // The evidence box is the next sibling, NOT an id lookup: every turn in the
+    // thread renders citation 0, so an id would open the first turn's passage forever.
+    const box = peek.closest(".source").nextElementSibling;
     box.hidden = !box.hidden;
     peek.textContent = box.hidden
       ? peek.textContent.replace("Hide", "Show")

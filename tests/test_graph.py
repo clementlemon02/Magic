@@ -10,6 +10,7 @@ import pytest
 from src.config import get_settings
 from src.graph.graph import build_graph
 from src.graph.state import (
+    DECLINE_REPLY,
     Chunk,
     GENERIC_REFUSAL,
     AuditEvent,
@@ -322,3 +323,71 @@ def test_a_nodes_own_events_survive_the_recording_wrapper():
     ).invoke(_start())
     assert marker in seen["events"]
     assert _transitions(seen["events"]), "the wrapper's own row is still there too"
+
+
+def test_decline_ends_the_turn_without_touching_the_corpus():
+    """Not a question about company knowledge. Decided by the Router from the query
+    text alone, so nothing is retrieved and nothing is drafted."""
+    reached = []
+    out = _graph(
+        router=lambda s: {"route": "decline"},
+        retrieval=lambda s: reached.append("retrieval") or {},
+        synthesizer=lambda s: reached.append("synthesizer") or {},
+        clarification=lambda s: reached.append("clarification") or {},
+    ).invoke(_start())
+
+    assert out["final_answer"] == DECLINE_REPLY
+    assert out["citations"] == []
+    assert out["escalated"] is False
+    assert reached == []
+
+
+def test_a_refusal_outranks_a_decline():
+    """Same ordering rule as the clarification case, for the same reason. A `decline`
+    is a distinguishable reply, so if it could be reached after the permission filter
+    ran it would be a side channel; checking it below the escalation branch is what
+    makes 'it never can' true rather than merely likely."""
+    out = _graph(router=lambda s: {"route": "decline"},
+                 escalation=lambda s: {"escalated": True}).invoke(
+        _start(route="decline", escalated=True)
+    )
+    assert out["final_answer"] == GENERIC_REFUSAL
+
+
+def test_the_two_fixed_replies_stay_distinct_and_neither_contains_the_other():
+    """DECLINE_REPLY may differ from GENERIC_REFUSAL — the Router picks it before any
+    permission check, so it carries nothing about the corpus. What must not happen is
+    the two drifting together: a refusal that reads like a scope message, or a scope
+    message that hints at withheld material."""
+    assert DECLINE_REPLY != GENERIC_REFUSAL
+    assert GENERIC_REFUSAL not in DECLINE_REPLY and DECLINE_REPLY not in GENERIC_REFUSAL
+    for tell in ("permitted", "restricted", "clearance", "access", "not allowed"):
+        assert tell not in DECLINE_REPLY.lower(), f"the scope message hints at withholding: {tell}"
+
+
+def test_a_stage_detail_counts_only_permitted_evidence():
+    """"6 passages" is what this caller got. How many were filtered OUT is the number
+    §5 forbids — it would tell an asker restricted material exists without naming it,
+    which is the existence leak in another costume. `_detail` reads the node's own
+    output, which only ever holds what survived the ACL predicate."""
+    from src.graph.graph import _detail
+
+    assert _detail("retrieval", {"retrieved_chunks": [_chunk(1), _chunk(2)]}) == "2 passages"
+    assert _detail("retrieval", {"retrieved_chunks": [_chunk(1)]}) == "1 passage"
+    assert _detail("retrieval", {"retrieved_chunks": []}) is None
+    assert _detail("verifier", {"verification": VerificationResult(
+        grounded=True, unsupported=[], confidence=0.94)}) == "grounded 0.94"
+    assert _detail("escalation", {"escalated": True, "explanation": "matched COMPLIANCE/aml"}) is None
+
+
+def test_a_detail_never_rides_out_on_a_refusal():
+    """The whole reason per-node detail is safe: build_response gives a refusal an
+    empty trace, so nothing computed here can describe a withheld request."""
+    from src.graph.graph import build_response
+
+    ran = [AuditEvent(event_type="node_transition",
+                      payload={"node": "retrieval", "hop": 1, "ms": 5.0, "detail": "6 passages"},
+                      occurred_at=datetime.now(UTC))]
+    assert build_response({"escalated": True, "audit_events": ran}).trace == []
+    kept = build_response({"escalated": False, "final_answer": "x", "audit_events": ran})
+    assert kept.trace[0].detail == "6 passages"

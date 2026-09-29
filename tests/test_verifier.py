@@ -4,8 +4,15 @@ import math
 
 import pytest
 
-from src.agents.verifier import _grounded_probability, _parse, _verify_measured, verify
-from src.graph.state import Chunk, Citation
+from src.agents.verifier import (
+    _grounded_in_figures,
+    _grounded_probability,
+    _parse,
+    _verify_measured,
+    unsupported_quantities,
+    verify,
+)
+from src.graph.state import Chunk, Citation, VerificationResult
 
 
 class FakeChat:
@@ -236,3 +243,57 @@ def test_a_rag_answer_still_goes_to_the_judge():
         chat_model=FakeChat('{"grounded": true, "unsupported": [], "confidence": 0.9}'),
     )
     assert out["verification"].confidence == 0.9  # the judge's number, not 1.0
+
+
+# --- the figure check ----------------------------------------------------------
+
+def _ev(text: str) -> list[Chunk]:
+    return [Chunk(id=1, document_id=1, content=text, acl_tags=["support"], score=0.9,
+                  citation=Citation(document_id=1, title="t", source_platform="slack", source_ref="r"))]
+
+
+def test_a_figure_the_evidence_never_states_is_unsupported():
+    """The real fail-open case. The passage is about a backlog being cleared and names
+    no threshold at all, yet qwen2.5:7b judged this answer grounded at 0.924."""
+    missing = unsupported_quantities(
+        "No, refunds above SGD 2,000 need team lead approval before they are issued.",
+        "Can I approve a SGD 3,000 refund myself?",
+        _ev("the refund backlog is fully cleared, and requests are reviewed within five business days"),
+    )
+    assert missing == [2000.0]
+
+
+def test_the_question_counts_as_a_source():
+    """An asker's own figure may be repeated back. Otherwise no question containing a
+    number could ever be answered."""
+    assert unsupported_quantities(
+        "A SGD 3,000 refund needs approval.", "Can I approve a SGD 3,000 refund myself?",
+        _ev("refunds need approval"),
+    ) == []
+
+
+def test_separators_and_spelled_numbers_do_not_cause_a_false_refusal():
+    assert unsupported_quantities("Up to SGD 2,000.", "q", _ev("the limit is 2000 dollars")) == []
+    assert unsupported_quantities("Reviewed within 5 days.", "q", _ev("within five business days")) == []
+
+
+def test_the_check_only_ever_downgrades():
+    """One direction. An ungrounded verdict is left exactly as the judge left it, and
+    a grounded one is never manufactured."""
+    judged_bad = VerificationResult(grounded=False, unsupported=["made up"], confidence=0.4)
+    assert _grounded_in_figures(judged_bad, "45 days", "q", _ev("45 days"), None) is judged_bad
+
+    judged_good = VerificationResult(grounded=True, unsupported=[], confidence=0.92)
+    out = _grounded_in_figures(judged_good, "SGD 2,000", "q", _ev("no figures here"), None)
+    assert out.grounded is False
+    assert "2,000" in out.unsupported[-1]
+    # Certain, not unsure: the figure is absent, and a low confidence would read to
+    # VERIFIER_CONFIDENCE_THRESHOLD as doubt about the verdict rather than about the answer.
+    assert out.confidence == 1.0
+
+
+def test_a_grounded_answer_whose_figures_are_all_present_is_left_alone():
+    judged = VerificationResult(grounded=True, unsupported=[], confidence=0.88)
+    assert _grounded_in_figures(
+        judged, "Customers have 45 days.", "How long?", _ev("contest within 45 days"), None
+    ) is judged

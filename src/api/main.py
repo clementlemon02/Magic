@@ -29,7 +29,7 @@ from src.api.ui import build_router as build_ui_router
 from src.cache import PermissionAwareCache
 from src.config import get_settings
 from src.graph.graph import build_graph, build_response
-from src.graph.state import AskerResponse, AuditEvent, GraphState, UserContext
+from src.graph.state import AskerResponse, AuditEvent, GraphState, Stage, UserContext
 
 
 class QueryRequest(BaseModel):
@@ -373,12 +373,18 @@ def create_app(
         # row before this handler ran.
 
         if cache is not None:
-            cached = await run_in_threadpool(cache.get, request.query, user)
-            if cached is not None:
+            entry = await run_in_threadpool(cache.lookup, request.query, user)
+            if entry is not None:
+                cached = entry.response
                 # Served without running the graph, so audited here: an answer that
                 # left no trail would be the one gap in "every answer is on record".
                 hit = {
                     **initial_state(request.query, user),
+                    # The route that produced the entry, not initial_state's `rag`
+                    # placeholder — the Router did not run, so the placeholder would
+                    # log a cached sql or decline request as a rag one. An older entry
+                    # stored before routes were recorded keeps the placeholder.
+                    **({"route": entry.route} if entry.route else {}),
                     "final_answer": cached.text,
                     "citations": cached.citations,
                     "audit_events": [AuditEvent(
@@ -386,7 +392,13 @@ def create_app(
                     )],
                 }
                 await run_in_threadpool(nodes["audit"], hit)
-                return cached
+                # Replace the trace, never pass the cached one through: it describes
+                # the request that filled the cache, not this one, and the UI would
+                # show seconds of retrieval and synthesis that did not happen. One
+                # stage for what actually ran.
+                return cached.model_copy(update={
+                    "trace": [Stage(node="cache", hop=0, ms=(clock() - started) * 1000)]
+                })
 
         state = await run_in_threadpool(graph.invoke, initial_state(request.query, user))
         # build_response is the only thing that shapes the reply: it cannot carry
@@ -403,7 +415,9 @@ def create_app(
         # Answers are cached, and not padded — answer versus refusal is already
         # visible in the text.
         if cache is not None:
-            await run_in_threadpool(cache.put, request.query, user, response)
+            await run_in_threadpool(
+                cache.put, request.query, user, response, state.get("route")
+            )
         return response
 
     return app
