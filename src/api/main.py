@@ -23,7 +23,7 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
-from src.api.auth import LoginThrottle, build_dependencies, issue_token, verify_password
+from src.api.auth import SlidingWindow, build_dependencies, issue_token, verify_password
 from src.api.compliance import build_router
 from src.api.ui import build_router as build_ui_router
 from src.cache import PermissionAwareCache
@@ -251,6 +251,7 @@ def create_app(
     credential_loader=load_credentials,
     cache=None,
     throttle=None,
+    query_limit=None,
     *,
     refusal_deadline: float | None = None,
     clock=time.monotonic,
@@ -276,8 +277,12 @@ def create_app(
     app.include_router(build_ui_router())
     settings = get_settings()
     if throttle is None:
-        throttle = LoginThrottle(
+        throttle = SlidingWindow(
             limit=settings.login_max_attempts, window=settings.login_lockout_seconds
+        )
+    if query_limit is None:
+        query_limit = SlidingWindow(
+            limit=settings.query_max_per_window, window=settings.query_window_seconds
         )
     if cache is None and settings.query_cache_enabled:
         cache = PermissionAwareCache(similarity_threshold=settings.query_cache_similarity)
@@ -309,7 +314,7 @@ def create_app(
         # the equal-time check below exist to refuse.
         who = f"email:{body.email.strip().lower()}"
         where = f"ip:{raw.client.host if raw.client else 'unknown'}"
-        wait = throttle.locked(who, where)
+        wait = throttle.retry_after(who, where)
         if wait:
             raise HTTPException(
                 status_code=429,
@@ -327,10 +332,10 @@ def create_app(
 
         user_id = await run_in_threadpool(check)
         if user_id is None:
-            throttle.failed(who, where)
+            throttle.record(who, where)
             # One message for both, so it never says which half was wrong.
             raise HTTPException(status_code=401, detail="That email and password do not match.")
-        throttle.passed(who, where)
+        throttle.clear(who, where)
         return Token(
             access_token=issue_token(user_id),
             expires_in=settings.auth_token_ttl_minutes * 60,
@@ -386,6 +391,26 @@ def create_app(
         started = getattr(raw.state, "arrived", None)
         if started is None:  # pragma: no cover - middleware always runs in the app
             started = clock()
+
+        # Per caller, counted BEFORE the work and regardless of how it ends. Every
+        # refusal is held to the deadline, so without this one caller can park a task
+        # per request for REFUSAL_DEADLINE_SECONDS while the model queues behind them
+        # — degrading the very number this product argues from.
+        #
+        # An answer and a refusal cost exactly the same allowance, and a rejection
+        # never consults the query. Charging them differently, or exempting anything,
+        # would let a caller read their own remaining allowance as a signal about
+        # what they had just been told (§5).
+        seat = f"user:{user.id}"
+        if query_limit is not None:
+            wait = query_limit.retry_after(seat)
+            if wait:
+                raise HTTPException(
+                    status_code=429,
+                    detail="Too many questions at once. Try again shortly.",
+                    headers={"Retry-After": str(int(wait) + 1)},
+                )
+            query_limit.record(seat)
 
         # Async handler, blocking work on the threadpool: padding then awaits on the
         # event loop and holds no worker. A sync sleep would hold one of ~40 for the

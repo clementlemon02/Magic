@@ -143,13 +143,13 @@ def test_the_role_comes_from_the_database_not_the_token():
 
 def _throttled_app(**kw):
     """An app whose only account is Alex, with a tiny allowance."""
-    from src.api.auth import LoginThrottle, hash_password
+    from src.api.auth import SlidingWindow, hash_password
 
     stored = hash_password("demo")
     return create_app(
         user_loader=lambda uid: ALEX,
         credential_loader=lambda email: (1, stored) if email == "alex@x.example" else None,
-        throttle=LoginThrottle(limit=3, window=600.0, **kw),
+        throttle=SlidingWindow(limit=3, window=600.0, **kw),
     )
 
 
@@ -196,10 +196,10 @@ def test_a_correct_password_clears_the_counter():
 
 def test_the_window_expires():
     now = [0.0]
-    from src.api.auth import LoginThrottle
+    from src.api.auth import SlidingWindow
 
-    t = LoginThrottle(limit=2, window=60.0, clock=lambda: now[0])
-    t.failed("a"), t.failed("a")
-    assert t.locked("a") > 0
+    t = SlidingWindow(limit=2, window=60.0, clock=lambda: now[0])
+    t.record("a"), t.record("a")
+    assert t.retry_after("a") > 0
     now[0] = 61.0
-    assert t.locked("a") == 0.0
+    assert t.retry_after("a") == 0.0

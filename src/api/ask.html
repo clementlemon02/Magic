@@ -27,6 +27,7 @@
     what your own permissions allow — the filter runs in the database, before any of it
     reaches the model.</p>
 
+  <div id="rest"></div>
   <div class="thread" id="thread" aria-live="polite"></div>
 
   <div class="composer">
@@ -399,13 +400,53 @@ function remedy(error) {
     return `That session has expired. Sign in again from the header.`;
   }
   if (error.status === 429) {
-    return `Too many attempts. Wait a few minutes and try again.`;
+    return `You have asked a lot in a short time. The limit is per person and counts
+      answers and refusals alike — wait a moment and try again.`;
   }
   return `Check <code>GET /health</code> — it reports the database and the model
     separately, which usually says which one to restart.`;
 }
 
+/* What the page shows before the first question.
+ *
+ * It used to show nothing — a blank band between the lede and the composer, on the
+ * screen a judge lands on first. This says who you are asking as and what that means
+ * for what comes back, then lays out the same agent lanes the answer will fill in.
+ * Nothing here is invented: the roster is the graph's own, and there are no timings
+ * until a real request produces some. */
+async function resting() {
+  const me = await IB.api("/auth/me").then((r) => (r.ok ? r.json() : null)).catch(() => null);
+  const officer = me && me.role === "compliance";
+  // "support in support" is what naming both parts gets you when they match.
+  const where = me && me.role !== me.dept ? ` in ${esc(me.dept)}` : "";
+  const who = me ? `You are asking as <b>user ${esc(me.id)}</b>, ${esc(me.role)}${where}.` : "";
+  const sees = officer
+    ? `You may see restricted compliance material. Ask the same question as the support
+       agent, side by side, to watch one question answer two ways.`
+    : `You will see what your role and department allow. Anything restricted comes back
+       as one refusal that reads the same whatever the reason — the real reason is
+       recorded, and only a compliance officer can read it back.`;
+
+  $("rest").innerHTML = `
+    <div class="resting">
+      <p class="who-line">${who} ${sees}</p>
+      <span class="section">Your question will go through</span>
+      <div class="flow">
+        ${AGENTS.map(([, name, blurb]) => `
+          <div class="lane off">
+            <span class="who">${esc(name)}</span>
+            <span class="span"><em>${esc(blurb)}</em></span>
+            <span class="ms">—</span>
+          </div>`).join("")}
+      </div>
+      <p class="who-line quiet">Timings appear once a question has actually run. The
+        pipeline is replayed from the answer, never streamed — a stage arriving live
+        would let anyone read the reason for a refusal off its shape.</p>
+    </div>`;
+}
+
 function turn(html, { mine = false } = {}) {
+  $("rest").innerHTML = "";
   const node = document.createElement("div");
   node.className = `turn ${mine ? "mine" : ""}`;
   node.innerHTML = html;
@@ -474,6 +515,9 @@ for (const [id, on] of [["mode-one", false], ["mode-two", true]]) {
   });
 }
 describeIdentities();
+// Only at load, and only while the thread is empty — `turn` clears it on the first
+// question and nothing puts it back.
+resting();
 
 // Keep the thread clear of the sticky composer, whatever height it currently is.
 new ResizeObserver(([entry]) => {

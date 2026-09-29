@@ -140,54 +140,63 @@ def build_dependencies(user_loader):
     return caller, officer
 
 
-# --- throttling failed sign-ins -------------------------------------------------
+# --- rate limiting --------------------------------------------------------------
+# One sliding-window counter, used for two different things.
+#
 # /auth/login had no limit at all: a caller could guess passwords as fast as the
 # server would answer, and the only brake was scrypt's own cost — which is not a
-# defence so much as a way to spend the server's CPU on the attacker's behalf.
+# defence so much as a way to spend the server's CPU on the attacker's behalf. There
+# it counts FAILURES, per email and per client, and a correct password clears it.
 #
-# Counted per email AND per client, and the email counter runs for addresses that do
-# not exist too. Locking only the real ones would answer "does this account exist?"
-# from the lockout alone, which is the enumeration `login` is already careful to
-# avoid in its timing and its error message.
+# /query had none either. Every refusal is held to REFUSAL_DEADLINE_SECONDS, so a
+# flood of restricted questions parks a task per request for the whole deadline while
+# the model queues behind them — one caller degrading everyone else's latency on the
+# screen whose entire argument is a number of seconds. There it counts EVERY request
+# and never clears, so an answer costs the same allowance as a refusal. That equality
+# is the point: a limiter that charged them differently would let a caller measure
+# which one they had received from their remaining allowance alone.
 
-class LoginThrottle:
-    """In-memory failure counter with a fixed lockout window.
+
+class SlidingWindow:
+    """Counts events per key and reports how long until the oldest one expires.
 
     ponytail: per-process, so N workers means N times the allowance and a restart
     clears it. Correct for a single-process demo; a shared counter (Redis, or a
-    `login_attempts` table) is the upgrade when this runs on more than one.
+    table) is the upgrade when this runs on more than one.
     """
 
     def __init__(self, *, limit: int = 5, window: float = 300.0, clock=time.monotonic):
         self.limit = limit
         self.window = window
         self._clock = clock
-        self._failures: dict[str, list[float]] = {}
+        self._events: dict[str, list[float]] = {}
 
     def _recent(self, key: str) -> list[float]:
         now = self._clock()
-        kept = [t for t in self._failures.get(key, []) if now - t < self.window]
+        kept = [t for t in self._events.get(key, []) if now - t < self.window]
         if kept:
-            self._failures[key] = kept
+            self._events[key] = kept
         else:
-            self._failures.pop(key, None)
+            self._events.pop(key, None)
         return kept
 
-    def locked(self, *keys: str) -> float:
-        """Seconds until the earliest key is free again, or 0.0 when none are locked."""
+    def retry_after(self, *keys: str) -> float:
+        """Seconds until the busiest key is under its limit again, or 0.0."""
         waits = [
-            self.window - (self._clock() - self._recent(k)[0])
+            self.window - (self._clock() - recent[0])
             for k in keys
-            if len(self._recent(k)) >= self.limit
+            if len(recent := self._recent(k)) >= self.limit
         ]
         return max(0.0, max(waits)) if waits else 0.0
 
-    def failed(self, *keys: str) -> None:
+    def record(self, *keys: str) -> None:
         now = self._clock()
         for key in keys:
-            self._failures.setdefault(key, []).append(now)
+            self._events.setdefault(key, []).append(now)
 
-    def passed(self, *keys: str) -> None:
-        """A correct password clears the counters, so one typo does not follow you."""
+    def clear(self, *keys: str) -> None:
+        """Used by login only: a correct password means one typo does not follow you.
+        The query limiter never calls this — see the note above on why an answer and
+        a refusal must cost the same."""
         for key in keys:
-            self._failures.pop(key, None)
+            self._events.pop(key, None)

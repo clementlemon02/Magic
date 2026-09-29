@@ -104,6 +104,12 @@ class Settings(BaseSettings):
     # caller and unlimited password guessing.
     login_max_attempts: int = 5
     login_lockout_seconds: float = 300.0
+    # /query, per CALLER. Every request counts, answers and refusals alike — see the
+    # note on SlidingWindow for why they must cost the same. Generous for a person
+    # (the model itself takes ~5s a question); tight enough that one caller cannot
+    # park a held refusal per request and queue the model against everybody else.
+    query_max_per_window: int = 20
+    query_window_seconds: float = 60.0
 
     api_host: str = "0.0.0.0"
     api_port: int = 8000

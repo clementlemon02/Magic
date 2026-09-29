@@ -371,3 +371,27 @@ def test_changing_who_may_read_something_takes_two_clicks_and_reports_failure():
     # Comment lines are skipped — this file explains that choice in one.
     code = "\n".join(l for l in page.splitlines() if not l.lstrip().startswith("//"))
     assert "confirm(" not in code
+
+
+def test_the_ask_page_is_not_blank_before_the_first_question():
+    """A judge lands here first, and it used to be an empty band between the lede and
+    the composer. It now names the caller and lays out the agent lanes the answer
+    will fill — the same roster, so the first answer reads as a before and after."""
+    page = PAGES["ask"].read_text(encoding="utf-8")
+    assert "async function resting()" in page
+    assert 'Your question will go through' in page
+    # Cleared by the first turn, and nothing puts it back.
+    assert 'function turn(html, { mine = false } = {}) {\n  $("rest").innerHTML = "";' in page
+
+
+def test_the_resting_state_invents_no_timings():
+    """Everything the page shows about a request has to have come from a request.
+    Plausible round numbers at rest would be indistinguishable from measured ones —
+    and this product's whole argument is a number of seconds."""
+    import re
+
+    page = PAGES["ask"].read_text(encoding="utf-8")
+    resting = page[page.index("async function resting()"):page.index("function turn(html,")]
+    assert not re.search(r"\d+\s*(ms|s)\b", resting), "a fabricated duration at rest"
+    # An em dash in the duration column, which is the honest value for "not yet run".
+    assert 'class="ms">—<' in resting

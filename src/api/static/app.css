@@ -505,6 +505,17 @@ nav a.locked::after {
 
 /* --- the thread ----------------------------------------------------------- */
 
+/* The page before the first question: who you are, and the lanes the answer fills. */
+.resting { max-width: 640px; }
+.resting .who-line { font-size: 14px; line-height: 1.6; color: var(--muted); margin: 0 0 22px; max-width: 62ch; }
+.resting .who-line b { color: var(--ink); font-weight: 600; }
+.resting .who-line.quiet { margin: 20px 0 0; font-size: 13px; color: var(--faint); }
+/* No leader line here: these lanes carry a description, and the rule drawn for an
+   unused agent in a real trace squeezed it to "picks the ha…". */
+.resting .lane.off .span::before { content: none; }
+.resting .lane .span { justify-content: flex-start; }
+.resting .lane .span em { font-style: normal; color: var(--muted); }
+
 /* The composer is sticky, so it renders OVER whatever flows beneath it. The thread
    ends with its height in padding, or the last answer sits behind the input box.
    --composer-h is measured in ask.html: the chips wrap at phone width, so a fixed
