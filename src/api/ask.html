@@ -297,7 +297,10 @@ async function run(uid, query) {
   const seconds = (performance.now() - began) / 1000;
   if (!response.ok) {
     const detail = (await response.json().catch(() => ({}))).detail || "";
-    throw new Error(`HTTP ${response.status}. ${detail}`);
+    // Carry the server's own sentence AND its status, so the page can offer the
+    // remedy that matches the cause rather than one fixed guess.
+    throw Object.assign(new Error(detail || `The request failed (HTTP ${response.status}).`),
+                        { status: response.status });
   }
   return { reply: await response.json(), seconds };
 }
@@ -374,6 +377,34 @@ function finding(a, b) {
     which is the common case, and the one a security demo never shows.</div>`;
 }
 
+/* What to actually do about it. The API already separates the causes — a dead
+   database and a dead model are different 503s with different sentences — and the
+   page used to print one fixed line telling you to start uvicorn whatever had
+   happened. On stage that is a wrong instruction at the worst moment. */
+function remedy(error) {
+  if (error.status === undefined) {
+    return `The page could not reach the API at all. Start it with
+      <code>uvicorn src.api.main:app --port 8000</code>.`;
+  }
+  const said = error.message.toLowerCase();
+  if (said.includes("knowledge store")) {
+    return `Postgres is not answering. Start it with <code>docker compose up -d</code>,
+      then reload.`;
+  }
+  if (said.includes("language model")) {
+    return `The model is not answering. Start it with <code>ollama serve</code> — it needs
+      <code>qwen2.5:7b</code> and <code>mxbai-embed-large</code> pulled.`;
+  }
+  if (error.status === 401) {
+    return `That session has expired. Sign in again from the header.`;
+  }
+  if (error.status === 429) {
+    return `Too many attempts. Wait a few minutes and try again.`;
+  }
+  return `Check <code>GET /health</code> — it reports the database and the model
+    separately, which usually says which one to restart.`;
+}
+
 function turn(html, { mine = false } = {}) {
   const node = document.createElement("div");
   node.className = `turn ${mine ? "mine" : ""}`;
@@ -414,9 +445,7 @@ async function ask() {
       finding(a, b);
   } catch (error) {
     stop();
-    reply.innerHTML = `<div class="note alert"><b>${esc(error.message)}</b>
-      If the API is unreachable, start it with
-      <code>uvicorn src.api.main:app --port 8000</code>.</div>`;
+    reply.innerHTML = `<div class="note alert"><b>${esc(error.message)}</b> ${remedy(error)}</div>`;
   } finally {
     $("go").disabled = false;
     $("q").focus();

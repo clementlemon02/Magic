@@ -30,6 +30,7 @@ from src.cache import PermissionAwareCache
 from src.config import get_settings
 from src.graph.graph import build_graph, build_response
 from src.graph.state import AskerResponse, AuditEvent, GraphState, Stage, UserContext
+from src.llm.factory import ModelUnavailable
 
 
 class QueryRequest(BaseModel):
@@ -117,17 +118,12 @@ logger = logging.getLogger(__name__)
 _DB_FAULTS = (psycopg.OperationalError, psycopg.InterfaceError)
 
 
-def _is_transport_fault(exc: BaseException) -> bool:
-    """A network fault reaching the model, rather than a bad answer from it.
-
-    ponytail: matched on the exception's top-level module, because the HTTP client
-    behind a chat model is an implementation detail that changes with the backend and
-    is not worth importing three libraries to name precisely.
-    """
-    root = type(exc).__module__.split(".")[0]
-    return root in {"requests", "httpx", "urllib3", "http", "socket", "ssl"} or isinstance(
-        exc, (TimeoutError, ConnectionError)
-    )
+# _is_transport_fault used to live here and walk the exception's cause chain. It
+# could not work from this end: anyio carries a threadpool fault through a task group
+# and overwrites __context__, so what arrives is `ValueError -> ExceptionGroup ->
+# ValueError -> ...` with the requests error destroyed. The classification moved to
+# src/llm/factory.py, where the chain is still intact, and arrives here as a TYPE —
+# which survives any number of re-raises.
 
 
 def describe_failure(exc: BaseException) -> tuple[int, str]:
@@ -142,7 +138,11 @@ def describe_failure(exc: BaseException) -> tuple[int, str]:
         return 501, "That part of the system is not built yet."
     if isinstance(exc, _DB_FAULTS):
         return 503, "The knowledge store is unavailable."
-    if _is_transport_fault(exc):
+    # ModelUnavailable is the factory's own verdict, made where the cause chain was
+    # still intact. TimeoutError is kept alongside it because a bare one can only be
+    # the model by this point — database faults are matched above, and nothing else
+    # on the request path waits on a socket.
+    if isinstance(exc, (ModelUnavailable, TimeoutError)):
         return 503, "The language model did not respond in time."
     return 503, "The service is temporarily unavailable."
 
