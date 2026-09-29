@@ -173,8 +173,8 @@ async function load() {
     // Refusing is the product, not an error to hide.
     rows = [];
     $("out").innerHTML = `<div class="note alert"><b>This page is for a compliance officer.</b> These reports are built from what people were refused, and the access-gap half names restricted documents and who wanted them. You are signed in as user ${esc(IB.active())}, who is not one —
-  use <b>Add identity</b> in the header to sign in as
-  <code>marcus.lim@aurelia.example</code> (password <code>demo</code>).</div>`;
+  pick that identity in the header, or <b>Add identity</b> if you are not holding it
+  yet. Adding one never switches you on its own.</div>`;
     return;
   }
   if (!response.ok) {

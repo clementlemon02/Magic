@@ -99,6 +99,11 @@ class Settings(BaseSettings):
     # whoever holds it can mint a token for any user id.
     auth_secret: str = "demo-only-change-me"
     auth_token_ttl_minutes: int = 720  # a working day, then sign in again
+    # Failed sign-ins allowed per email and per client before a lockout window.
+    # /auth/login had no limit at all, so scrypt's cost was the only thing between a
+    # caller and unlimited password guessing.
+    login_max_attempts: int = 5
+    login_lockout_seconds: float = 300.0
 
     api_host: str = "0.0.0.0"
     api_port: int = 8000

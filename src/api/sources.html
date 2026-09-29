@@ -39,6 +39,7 @@
 
   <div class="split">
     <div class="detail" id="sources"></div>
+    <p id="grant-error" class="signin-error"></p>
     <div class="worklist" id="grants" style="width:420px"></div>
   </div>
 </main>
@@ -52,8 +53,8 @@ const esc = (s) => String(s).replace(/[&<>"]/g, (c) =>
 
 
 const forbidden = () => `<div class="note alert"><b>This page is for a compliance officer.</b> Connecting a source and changing who may read it are officer actions. You are signed in as user ${esc(IB.active())}, who is not one —
-  use <b>Add identity</b> in the header to sign in as
-  <code>marcus.lim@aurelia.example</code> (password <code>demo</code>).</div>`;
+  pick that identity in the header, or <b>Add identity</b> if you are not holding it
+  yet. Adding one never switches you on its own.</div>`;
 
 const ago = (iso) => {
   if (!iso) return "never";
@@ -109,30 +110,64 @@ async function loadGrants() {
   if (response.status === 403) { $("grants").innerHTML = forbidden(); return; }
   const grants = await response.json();
   if (!grants.length) {
-    $("grants").innerHTML = `<div class="note">User ${esc(subject)} holds no live grants.</div>`;
+    $("grants").innerHTML = `<div class="note">User ${esc(subject)} has no individual
+      grants, live or revoked. They may still reach documents through their role — a
+      grant is an exception on top of that, not the whole of what someone can see.</div>`;
     return;
   }
   $("grants").innerHTML = `
     <div class="panel">
-      <span class="section">Live grants · user ${esc(subject)}</span>
+      <span class="section">Grants · user ${esc(subject)}</span>
       <p style="margin:0 0 14px;font-size:13px;line-height:1.55;color:var(--muted)">
         Revoking takes effect on the next question: retrieval joins this table, and the
         answer cache is keyed on the grant set.</p>
-      ${grants.map((g) => `
-        <div class="source">
+      ${grants.map((g) => {
+        // A revoked row stays, greyed, offering itself back. It used to disappear,
+        // which left the page's own grant path unreachable and a misclick permanent
+        // as far as this screen was concerned.
+        const live = !g.revoked_at;
+        return `
+        <div class="source${live ? "" : " gone"}">
           <span class="ref"><span class="plat">${esc(g.source_platform)}:</span>${esc(g.source_ref)}</span>
           ${g.sensitivity === "restricted" ? '<span class="tag restricted">restricted</span>' : ""}
-          <button class="copy" type="button" style="color:var(--withheld)"
+          ${live ? "" : '<span class="tag">revoked</span>'}
+          <button class="copy" type="button" style="color:var(--${live ? "withheld" : "clear"})"
             data-platform="${esc(g.source_platform)}" data-ref="${esc(g.source_ref)}"
-            data-action="revoke">Revoke</button>
-        </div>`).join("")}
+            data-action="${live ? "revoke" : "grant"}">${live ? "Revoke" : "Grant"}</button>
+        </div>`;
+      }).join("")}
     </div>`;
 }
+
+// Two clicks, in the button itself. Changing who may read something is the one
+// action on this screen with a consequence outside it, and it used to happen on a
+// single click with no way back but noticing. Not window.confirm(): embedded views
+// return from it immediately without ever showing a dialog, so the guard would be
+// no guard at all in exactly the places it is hardest to notice.
+let armed = null;
+function disarm() {
+  if (!armed) return;
+  armed.textContent = armed.dataset.action === "revoke" ? "Revoke" : "Grant";
+  armed.classList.remove("armed");
+  armed = null;
+}
+document.addEventListener("click", (e) => {
+  if (armed && !e.target.closest("button[data-action]")) disarm();
+});
 
 $("grants").addEventListener("click", async (e) => {
   const button = e.target.closest("button[data-action]");
   if (!button) return;
   const revoking = button.dataset.action === "revoke";
+  if (armed !== button) {
+    disarm();
+    armed = button;
+    button.textContent = revoking ? "Revoke — confirm" : "Grant — confirm";
+    button.classList.add("armed");
+    return;
+  }
+  armed = null;
+  button.classList.remove("armed");
   button.disabled = true;
   button.textContent = revoking ? "Revoking…" : "Granting…";
   const response = await IB.api(`/admin/permissions/${revoking ? "revoke" : "grant"}`, {
@@ -145,10 +180,18 @@ $("grants").addEventListener("click", async (e) => {
     }),
   }).catch(() => null);
   if (!response || !response.ok) {
+    // Say so. This used to reset the button and stop, leaving the officer with no
+    // way to tell a failed revoke from a completed one — the single worst state for
+    // a screen whose subject is who can read what.
     button.disabled = false;
     button.textContent = revoking ? "Revoke" : "Grant";
+    const detail = response ? (await response.json().catch(() => ({}))).detail : "";
+    $("grant-error").textContent =
+      `That ${revoking ? "revoke" : "grant"} did not go through${
+        detail ? `: ${detail}` : " — the server did not respond."} Nothing changed.`;
     return;
   }
+  $("grant-error").textContent = "";
   // Re-read rather than patch the row: the table is the truth, and the whole point
   // of this screen is that the next question reads the same table.
   loadGrants();

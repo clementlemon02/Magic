@@ -36,7 +36,7 @@
       <button class="ghost" id="verify" type="button">Verify chain</button>
       <div class="spacer" style="margin-left:auto"></div>
       <div class="readout" id="count" hidden>
-        <span class="big" id="count-n">0</span><span class="unit">requests</span>
+        <span class="big" id="count-n">0</span><span class="unit" id="count-unit">requests</span>
       </div>
     </div>
   </div>
@@ -58,11 +58,13 @@ const esc = (s) => String(s).replace(/[&<>"]/g, (c) =>
 
 
 let requests = [];
+// Must match the API's own default (audit.recent_requests).
+const PAGE_LIMIT = 100;
 let current = null;
 
 const forbidden = () => `<div class="note alert"><b>This page is for a compliance officer.</b> A request id is the key to an explanation, so browsing them is officer-only. You are signed in as user ${esc(IB.active())}, who is not one —
-  use <b>Add identity</b> in the header to sign in as
-  <code>marcus.lim@aurelia.example</code> (password <code>demo</code>).</div>`;
+  pick that identity in the header, or <b>Add identity</b> if you are not holding it
+  yet. Adding one never switches you on its own.</div>`;
 
 // Which events carry a verdict worth colouring. Everything else is process.
 const TONE = { escalation: "bad", permission_conflict: "bad", source_recheck_denied: "bad",
@@ -81,7 +83,8 @@ function renderList() {
         <span>user ${esc(r.user_id ?? "?")}</span>
         <span>${esc(r.route ?? "—")}</span>
         <span class="tag ${r.escalated ? "restricted" : "clear"}">${
-          r.escalated ? esc(r.reason || "refused") : "answered"}</span>
+          r.escalated ? esc(r.reason || "refused")
+                      : r.route === "decline" ? "out of scope" : "answered"}</span>
         <span style="margin-left:auto">${esc(new Date(r.at).toLocaleTimeString())}</span>
       </div>
     </button>`).join("");
@@ -145,7 +148,12 @@ async function loadList() {
   }
   if (response.status === 403) { $("list").innerHTML = forbidden(); $("detail").innerHTML = ""; return; }
   requests = await response.json();
-  $("count-n").textContent = requests.length;
+  // The API returns at most PAGE_LIMIT rows. Saying "100 requests" when the real
+  // figure is unknown-and-larger is a wrong number in the one surface whose entire
+  // claim is that it reports what happened.
+  const capped = requests.length >= PAGE_LIMIT;
+  $("count-n").textContent = capped ? `${PAGE_LIMIT}+` : requests.length;
+  $("count-unit").textContent = capped ? "newest shown" : "requests";
   $("count").hidden = false;
   $("list").innerHTML = renderList();
   $("detail").innerHTML = requests.length

@@ -23,7 +23,7 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
-from src.api.auth import build_dependencies, issue_token, verify_password
+from src.api.auth import LoginThrottle, build_dependencies, issue_token, verify_password
 from src.api.compliance import build_router
 from src.api.ui import build_router as build_ui_router
 from src.cache import PermissionAwareCache
@@ -250,6 +250,7 @@ def create_app(
     user_loader=load_user,
     credential_loader=load_credentials,
     cache=None,
+    throttle=None,
     *,
     refusal_deadline: float | None = None,
     clock=time.monotonic,
@@ -274,6 +275,10 @@ def create_app(
     app.include_router(build_router(user_loader, officer=officer))
     app.include_router(build_ui_router())
     settings = get_settings()
+    if throttle is None:
+        throttle = LoginThrottle(
+            limit=settings.login_max_attempts, window=settings.login_lockout_seconds
+        )
     if cache is None and settings.query_cache_enabled:
         cache = PermissionAwareCache(similarity_threshold=settings.query_cache_similarity)
     if refusal_deadline is None:
@@ -295,8 +300,22 @@ def create_app(
             await sleeper(remaining)
 
     @app.post("/auth/login", response_model=Token)
-    async def login(body: LoginRequest) -> Token:
+    async def login(body: LoginRequest, raw: Request) -> Token:
         settings = get_settings()
+        # Both counters, so guessing one account's password and spraying many accounts
+        # from one client are each bounded. The email key is counted even when no such
+        # account exists — a lockout that only ever fired for real addresses would
+        # answer "does this account exist?", which is what the shared error message and
+        # the equal-time check below exist to refuse.
+        who = f"email:{body.email.strip().lower()}"
+        where = f"ip:{raw.client.host if raw.client else 'unknown'}"
+        wait = throttle.locked(who, where)
+        if wait:
+            raise HTTPException(
+                status_code=429,
+                detail="Too many sign-in attempts. Try again in a few minutes.",
+                headers={"Retry-After": str(int(wait) + 1)},
+            )
 
         def check() -> int | None:
             found = credential_loader(body.email)
@@ -308,8 +327,10 @@ def create_app(
 
         user_id = await run_in_threadpool(check)
         if user_id is None:
+            throttle.failed(who, where)
             # One message for both, so it never says which half was wrong.
             raise HTTPException(status_code=401, detail="That email and password do not match.")
+        throttle.passed(who, where)
         return Token(
             access_token=issue_token(user_id),
             expires_in=settings.auth_token_ttl_minutes * 60,

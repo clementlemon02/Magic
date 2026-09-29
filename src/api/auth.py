@@ -138,3 +138,56 @@ def build_dependencies(user_loader):
         return user
 
     return caller, officer
+
+
+# --- throttling failed sign-ins -------------------------------------------------
+# /auth/login had no limit at all: a caller could guess passwords as fast as the
+# server would answer, and the only brake was scrypt's own cost — which is not a
+# defence so much as a way to spend the server's CPU on the attacker's behalf.
+#
+# Counted per email AND per client, and the email counter runs for addresses that do
+# not exist too. Locking only the real ones would answer "does this account exist?"
+# from the lockout alone, which is the enumeration `login` is already careful to
+# avoid in its timing and its error message.
+
+class LoginThrottle:
+    """In-memory failure counter with a fixed lockout window.
+
+    ponytail: per-process, so N workers means N times the allowance and a restart
+    clears it. Correct for a single-process demo; a shared counter (Redis, or a
+    `login_attempts` table) is the upgrade when this runs on more than one.
+    """
+
+    def __init__(self, *, limit: int = 5, window: float = 300.0, clock=time.monotonic):
+        self.limit = limit
+        self.window = window
+        self._clock = clock
+        self._failures: dict[str, list[float]] = {}
+
+    def _recent(self, key: str) -> list[float]:
+        now = self._clock()
+        kept = [t for t in self._failures.get(key, []) if now - t < self.window]
+        if kept:
+            self._failures[key] = kept
+        else:
+            self._failures.pop(key, None)
+        return kept
+
+    def locked(self, *keys: str) -> float:
+        """Seconds until the earliest key is free again, or 0.0 when none are locked."""
+        waits = [
+            self.window - (self._clock() - self._recent(k)[0])
+            for k in keys
+            if len(self._recent(k)) >= self.limit
+        ]
+        return max(0.0, max(waits)) if waits else 0.0
+
+    def failed(self, *keys: str) -> None:
+        now = self._clock()
+        for key in keys:
+            self._failures.setdefault(key, []).append(now)
+
+    def passed(self, *keys: str) -> None:
+        """A correct password clears the counters, so one typo does not follow you."""
+        for key in keys:
+            self._failures.pop(key, None)
