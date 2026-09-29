@@ -138,3 +138,65 @@ def build_dependencies(user_loader):
         return user
 
     return caller, officer
+
+
+# --- rate limiting --------------------------------------------------------------
+# One sliding-window counter, used for two different things.
+#
+# /auth/login had no limit at all: a caller could guess passwords as fast as the
+# server would answer, and the only brake was scrypt's own cost — which is not a
+# defence so much as a way to spend the server's CPU on the attacker's behalf. There
+# it counts FAILURES, per email and per client, and a correct password clears it.
+#
+# /query had none either. Every refusal is held to REFUSAL_DEADLINE_SECONDS, so a
+# flood of restricted questions parks a task per request for the whole deadline while
+# the model queues behind them — one caller degrading everyone else's latency on the
+# screen whose entire argument is a number of seconds. There it counts EVERY request
+# and never clears, so an answer costs the same allowance as a refusal. That equality
+# is the point: a limiter that charged them differently would let a caller measure
+# which one they had received from their remaining allowance alone.
+
+
+class SlidingWindow:
+    """Counts events per key and reports how long until the oldest one expires.
+
+    ponytail: per-process, so N workers means N times the allowance and a restart
+    clears it. Correct for a single-process demo; a shared counter (Redis, or a
+    table) is the upgrade when this runs on more than one.
+    """
+
+    def __init__(self, *, limit: int = 5, window: float = 300.0, clock=time.monotonic):
+        self.limit = limit
+        self.window = window
+        self._clock = clock
+        self._events: dict[str, list[float]] = {}
+
+    def _recent(self, key: str) -> list[float]:
+        now = self._clock()
+        kept = [t for t in self._events.get(key, []) if now - t < self.window]
+        if kept:
+            self._events[key] = kept
+        else:
+            self._events.pop(key, None)
+        return kept
+
+    def retry_after(self, *keys: str) -> float:
+        """Seconds until the busiest key is under its limit again, or 0.0."""
+        waits = [
+            self.window - (self._clock() - recent[0])
+            for k in keys
+            if len(recent := self._recent(k)) >= self.limit
+        ]
+        return max(0.0, max(waits)) if waits else 0.0
+
+    def record(self, *keys: str) -> None:
+        now = self._clock()
+        for key in keys:
+            self._events.setdefault(key, []).append(now)
+
+    def clear(self, *keys: str) -> None:
+        """Used by login only: a correct password means one typo does not follow you.
+        The query limiter never calls this — see the note above on why an answer and
+        a refusal must cost the same."""
+        for key in keys:
+            self._events.pop(key, None)

@@ -238,3 +238,77 @@ def test_a_cache_hit_reports_the_cache_not_the_run_it_replays():
     # The audit records how the answer was ORIGINALLY produced. Without this it gets
     # initial_state's "rag" placeholder, because the Router never ran.
     assert audited["route"] == "sql", "a cached sql answer was audited as rag"
+
+
+# --- /query rate limiting -------------------------------------------------------
+
+def _limited(limit: int, **overrides):
+    from src.api.auth import SlidingWindow
+
+    return TestClient(create_app(
+        nodes=_nodes(**overrides),
+        user_loader=lambda uid: ALEX,
+        query_limit=SlidingWindow(limit=limit, window=600.0),
+    ))
+
+
+def test_a_caller_flooding_query_is_limited():
+    """Every refusal is held to the deadline, so without a limit one caller parks a
+    task per request for the whole of it while the model queues behind them."""
+    client = _limited(3)
+    for _ in range(3):
+        assert client.post("/query", json={"query": "hi"}, headers=as_user(1)).status_code == 200
+    stopped = client.post("/query", json={"query": "hi"}, headers=as_user(1))
+    assert stopped.status_code == 429
+    assert "Retry-After" in stopped.headers
+
+
+def test_an_answer_and_a_refusal_cost_the_same_allowance():
+    """The §5 property. If a refusal were cheaper — or free — a caller could read
+    their own remaining allowance as a signal about what they had just been told,
+    which is the distinction the generic refusal and the padding both remove."""
+    conflict = lambda s: {
+        "hop_count": 1,
+        "permission_conflicts": [PermConflict(
+            document_id=2, source_platform="confluence", source_ref="COMPLIANCE/x",
+            sensitivity="restricted", score_margin=0.2,
+        )],
+    }
+    answers, refusals = _limited(3), _limited(3, retrieval=conflict)
+
+    for client in (answers, refusals):
+        for _ in range(3):
+            assert client.post("/query", json={"query": "q"}, headers=as_user(1)).status_code == 200
+        assert client.post("/query", json={"query": "q"}, headers=as_user(1)).status_code == 429
+
+    # And the two paths really did differ in outcome, or the test proves nothing.
+    fresh_a = _limited(9)
+    fresh_r = _limited(9, retrieval=conflict)
+    assert fresh_a.post("/query", json={"query": "q"}, headers=as_user(1)).json()["text"] != \
+           fresh_r.post("/query", json={"query": "q"}, headers=as_user(1)).json()["text"]
+
+
+def test_the_limit_is_per_caller_not_global():
+    """One busy person must not lock everybody else out — that would turn a defence
+    into the outage it exists to prevent."""
+    from src.api.auth import SlidingWindow
+
+    people = {1: ALEX, 2: UserContext(id=2, role="compliance", dept="compliance", clearance_level=1)}
+    client = TestClient(create_app(
+        nodes=_nodes(), user_loader=people.get,
+        query_limit=SlidingWindow(limit=2, window=600.0),
+    ))
+    for _ in range(2):
+        client.post("/query", json={"query": "q"}, headers=as_user(1))
+    assert client.post("/query", json={"query": "q"}, headers=as_user(1)).status_code == 429
+    assert client.post("/query", json={"query": "q"}, headers=as_user(2)).status_code == 200
+
+
+def test_a_rejected_request_never_reads_the_question():
+    """A 429 is decided from the caller's own request count and nothing else, so it
+    cannot become a channel for anything about the corpus."""
+    seen = []
+    client = _limited(1, router=lambda s: seen.append(s["query"]) or {"route": "rag"})
+    client.post("/query", json={"query": "first"}, headers=as_user(1))
+    client.post("/query", json={"query": "restricted secret"}, headers=as_user(1))
+    assert seen == ["first"]

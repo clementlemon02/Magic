@@ -44,7 +44,9 @@ def test_ollama_backend_is_selectable_without_warning(monkeypatch):
     monkeypatch.setenv("LLM_BACKEND", "ollama")
     monkeypatch.setenv("OLLAMA_MODEL", "qwen2.5:7b")
     model = get_chat_model()
-    assert isinstance(model, ChatOllama)
+    # `.inner`: the factory wraps every real model so a transport fault is named
+    # where the cause chain still exists (src/llm/factory.ModelUnavailable).
+    assert isinstance(model.inner, ChatOllama)
     assert model.model == "qwen2.5:7b"
     assert model.temperature == 0  # deterministic: routing and judging aren't creative
 

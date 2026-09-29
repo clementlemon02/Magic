@@ -14,6 +14,7 @@ import psycopg
 import pytest
 from fastapi.testclient import TestClient
 
+from src.api.auth import SlidingWindow
 from src.api.main import create_app
 from src.graph.state import (
     GENERIC_REFUSAL,
@@ -230,7 +231,15 @@ def test_padding_holds_no_worker_thread():
         "escalation": lambda s: {"escalated": True},
         "audit": lambda s: {"audit_events": []},
     }
-    app = create_app(nodes=nodes, user_loader=lambda uid: ALEX, refusal_deadline=deadline)
+    # A limiter wide enough not to interfere: fifty concurrent refusals from one
+    # caller is precisely what the /query rate limit exists to stop, and this test is
+    # about a different property — that holding them costs no worker thread.
+    app = create_app(
+        nodes=nodes,
+        user_loader=lambda uid: ALEX,
+        refusal_deadline=deadline,
+        query_limit=SlidingWindow(limit=10_000, window=60.0),
+    )
 
     async def run():
         transport = httpx.ASGITransport(app=app)

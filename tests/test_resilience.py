@@ -185,3 +185,55 @@ def test_answers_are_cached_and_served():
     client.post("/query", json={"query": "how long to review a refund"}, headers=as_user(1))
     client.post("/query", json={"query": "how long to review a refund"}, headers=as_user(1))
     assert cache.hits == 1
+
+
+def test_a_transport_fault_is_named_where_the_cause_chain_still_exists():
+    """The factory classifies, not the error handler, and this is why.
+
+    A dead Ollama raises requests.ConnectionError; langchain re-raises it as a plain
+    ValueError; anyio then carries that across the threadpool through a task group,
+    which OVERWRITES __context__ with its own ExceptionGroup. Measured against a real
+    dead endpoint, the handler receives `ValueError -> ExceptionGroup -> ValueError`
+    with the requests error destroyed — so no walk from that end can find it, however
+    thorough. The wrapper converts at the call, and a TYPE survives every re-raise.
+    """
+    import requests
+
+    from src.llm.factory import ModelUnavailable, _Guarded
+
+    class Dead:
+        def invoke(self, prompt):
+            raise ValueError("Error raised by inference endpoint: ...") from \
+                requests.exceptions.ConnectionError("refused")
+
+    with pytest.raises(ModelUnavailable):
+        _Guarded(Dead()).invoke("anything")
+
+
+def test_the_guard_does_not_swallow_a_real_answer_or_a_real_bug():
+    from src.llm.factory import _Guarded
+
+    class Model:
+        value = 7
+
+        def invoke(self, prompt):
+            return f"said {prompt}"
+
+        def broken(self):
+            raise ValueError("a genuine bug, not a network fault")
+
+    guarded = _Guarded(Model())
+    assert guarded.invoke("hi") == "said hi"
+    assert guarded.value == 7          # non-callables pass straight through
+    with pytest.raises(ValueError, match="genuine bug"):
+        guarded.broken()
+
+
+def test_a_model_fault_reaches_the_asker_as_the_model_not_as_a_shrug():
+    """The message that decides which dependency someone restarts on stage."""
+    from src.api.main import describe_failure
+    from src.llm.factory import ModelUnavailable
+
+    assert describe_failure(ModelUnavailable("refused")) == (
+        503, "The language model did not respond in time."
+    )

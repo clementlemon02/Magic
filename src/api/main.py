@@ -23,13 +23,14 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
-from src.api.auth import build_dependencies, issue_token, verify_password
+from src.api.auth import SlidingWindow, build_dependencies, issue_token, verify_password
 from src.api.compliance import build_router
 from src.api.ui import build_router as build_ui_router
 from src.cache import PermissionAwareCache
 from src.config import get_settings
 from src.graph.graph import build_graph, build_response
 from src.graph.state import AskerResponse, AuditEvent, GraphState, Stage, UserContext
+from src.llm.factory import ModelUnavailable
 
 
 class QueryRequest(BaseModel):
@@ -117,17 +118,12 @@ logger = logging.getLogger(__name__)
 _DB_FAULTS = (psycopg.OperationalError, psycopg.InterfaceError)
 
 
-def _is_transport_fault(exc: BaseException) -> bool:
-    """A network fault reaching the model, rather than a bad answer from it.
-
-    ponytail: matched on the exception's top-level module, because the HTTP client
-    behind a chat model is an implementation detail that changes with the backend and
-    is not worth importing three libraries to name precisely.
-    """
-    root = type(exc).__module__.split(".")[0]
-    return root in {"requests", "httpx", "urllib3", "http", "socket", "ssl"} or isinstance(
-        exc, (TimeoutError, ConnectionError)
-    )
+# _is_transport_fault used to live here and walk the exception's cause chain. It
+# could not work from this end: anyio carries a threadpool fault through a task group
+# and overwrites __context__, so what arrives is `ValueError -> ExceptionGroup ->
+# ValueError -> ...` with the requests error destroyed. The classification moved to
+# src/llm/factory.py, where the chain is still intact, and arrives here as a TYPE —
+# which survives any number of re-raises.
 
 
 def describe_failure(exc: BaseException) -> tuple[int, str]:
@@ -142,7 +138,11 @@ def describe_failure(exc: BaseException) -> tuple[int, str]:
         return 501, "That part of the system is not built yet."
     if isinstance(exc, _DB_FAULTS):
         return 503, "The knowledge store is unavailable."
-    if _is_transport_fault(exc):
+    # ModelUnavailable is the factory's own verdict, made where the cause chain was
+    # still intact. TimeoutError is kept alongside it because a bare one can only be
+    # the model by this point — database faults are matched above, and nothing else
+    # on the request path waits on a socket.
+    if isinstance(exc, (ModelUnavailable, TimeoutError)):
         return 503, "The language model did not respond in time."
     return 503, "The service is temporarily unavailable."
 
@@ -250,6 +250,8 @@ def create_app(
     user_loader=load_user,
     credential_loader=load_credentials,
     cache=None,
+    throttle=None,
+    query_limit=None,
     *,
     refusal_deadline: float | None = None,
     clock=time.monotonic,
@@ -274,6 +276,14 @@ def create_app(
     app.include_router(build_router(user_loader, officer=officer))
     app.include_router(build_ui_router())
     settings = get_settings()
+    if throttle is None:
+        throttle = SlidingWindow(
+            limit=settings.login_max_attempts, window=settings.login_lockout_seconds
+        )
+    if query_limit is None:
+        query_limit = SlidingWindow(
+            limit=settings.query_max_per_window, window=settings.query_window_seconds
+        )
     if cache is None and settings.query_cache_enabled:
         cache = PermissionAwareCache(similarity_threshold=settings.query_cache_similarity)
     if refusal_deadline is None:
@@ -295,8 +305,22 @@ def create_app(
             await sleeper(remaining)
 
     @app.post("/auth/login", response_model=Token)
-    async def login(body: LoginRequest) -> Token:
+    async def login(body: LoginRequest, raw: Request) -> Token:
         settings = get_settings()
+        # Both counters, so guessing one account's password and spraying many accounts
+        # from one client are each bounded. The email key is counted even when no such
+        # account exists — a lockout that only ever fired for real addresses would
+        # answer "does this account exist?", which is what the shared error message and
+        # the equal-time check below exist to refuse.
+        who = f"email:{body.email.strip().lower()}"
+        where = f"ip:{raw.client.host if raw.client else 'unknown'}"
+        wait = throttle.retry_after(who, where)
+        if wait:
+            raise HTTPException(
+                status_code=429,
+                detail="Too many sign-in attempts. Try again in a few minutes.",
+                headers={"Retry-After": str(int(wait) + 1)},
+            )
 
         def check() -> int | None:
             found = credential_loader(body.email)
@@ -308,8 +332,10 @@ def create_app(
 
         user_id = await run_in_threadpool(check)
         if user_id is None:
+            throttle.record(who, where)
             # One message for both, so it never says which half was wrong.
             raise HTTPException(status_code=401, detail="That email and password do not match.")
+        throttle.clear(who, where)
         return Token(
             access_token=issue_token(user_id),
             expires_in=settings.auth_token_ttl_minutes * 60,
@@ -365,6 +391,26 @@ def create_app(
         started = getattr(raw.state, "arrived", None)
         if started is None:  # pragma: no cover - middleware always runs in the app
             started = clock()
+
+        # Per caller, counted BEFORE the work and regardless of how it ends. Every
+        # refusal is held to the deadline, so without this one caller can park a task
+        # per request for REFUSAL_DEADLINE_SECONDS while the model queues behind them
+        # — degrading the very number this product argues from.
+        #
+        # An answer and a refusal cost exactly the same allowance, and a rejection
+        # never consults the query. Charging them differently, or exempting anything,
+        # would let a caller read their own remaining allowance as a signal about
+        # what they had just been told (§5).
+        seat = f"user:{user.id}"
+        if query_limit is not None:
+            wait = query_limit.retry_after(seat)
+            if wait:
+                raise HTTPException(
+                    status_code=429,
+                    detail="Too many questions at once. Try again shortly.",
+                    headers={"Retry-After": str(int(wait) + 1)},
+                )
+            query_limit.record(seat)
 
         # Async handler, blocking work on the threadpool: padding then awaits on the
         # event loop and holds no worker. A sync sleep would hold one of ~40 for the

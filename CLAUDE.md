@@ -257,6 +257,13 @@ request**, so a token cannot assert a role and walk past the §1 predicate. That
 - The envelope for constant-time refusal opens in middleware, BEFORE the auth dependency runs:
   authentication hits the database, its duration varies, and a variable step outside the padding
   is exactly what the padding exists to hide.
+- `SlidingWindow` (same module) rate-limits two things. `/auth/login` counts FAILURES per
+  email and per client (`LOGIN_MAX_ATTEMPTS` in `LOGIN_LOCKOUT_SECONDS`), clearing on a correct
+  password; the email counter runs for addresses that do not exist, or the lockout itself answers
+  "does this account exist?". `/query` counts EVERY request per caller
+  (`QUERY_MAX_PER_WINDOW` in `QUERY_WINDOW_SECONDS`) — an answer and a refusal cost the same
+  allowance, deliberately: charging them differently would let a caller read their own remaining
+  allowance as a signal about what they had just been told (§5). Both are per-process.
 - Demo scope, stated rather than implied: no refresh, no revocation list, no rotation.
   `AUTH_SECRET` is a committed demo key and `AUTH_TOKEN_TTL_MINUTES` is what bounds the damage.
   `caller` is the seam to swap for a real identity provider.

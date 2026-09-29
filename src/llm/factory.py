@@ -25,6 +25,77 @@ EMBEDDING_DIM = 1024
 EMBEDDING_MAX_INPUT_TOKENS = 1024
 
 
+class ModelUnavailable(RuntimeError):
+    """The language model could not be reached. Raised HERE, at the call, because
+    this is the last place the truth survives.
+
+    Measured: a dead Ollama raises `requests.ConnectionError`, langchain catches it
+    and re-raises `ValueError("Error raised by inference endpoint: ...")`, and anyio
+    then carries that across the threadpool through a task group — which OVERWRITES
+    `__context__` with its own ExceptionGroup. By the time the API's error handler
+    sees it the chain reads `ValueError -> ExceptionGroup -> ValueError -> ...` and
+    the requests error is gone. So the fault cannot be classified downstream from
+    what arrives; it has to be named where it happens.
+
+    An exception's TYPE survives all of that, which is the whole point of this class.
+    """
+
+
+_TRANSPORT_MODULES = frozenset({"requests", "httpx", "urllib3", "http", "socket", "ssl"})
+
+
+def _is_transport_fault(exc: BaseException) -> bool:
+    """A network fault reaching the model, rather than a bad answer from it.
+
+    ponytail: matched on the exception's top-level module, because the HTTP client
+    behind a chat model changes with the backend and is not worth importing three
+    libraries to name precisely. Walks causes and contexts, which ARE intact here —
+    it is only the trip through the threadpool that destroys them.
+    """
+    seen: set[int] = set()
+    while exc is not None and id(exc) not in seen:
+        seen.add(id(exc))
+        if type(exc).__module__.split(".")[0] in _TRANSPORT_MODULES:
+            return True
+        if isinstance(exc, (TimeoutError, ConnectionError)):
+            return True
+        exc = exc.__cause__ or exc.__context__
+    return False
+
+
+class _Guarded:
+    """Passes everything through, turning a transport fault into ModelUnavailable.
+
+    One wrapper at the factory rather than a try/except at each of the five call
+    sites, which is five places to forget.
+    """
+
+    def __init__(self, inner):
+        self._inner = inner
+
+    @property
+    def inner(self):
+        """The model underneath, for tests that assert on the backend's own type."""
+        return self._inner
+
+    def __getattr__(self, name):
+        attribute = getattr(self._inner, name)
+        if not callable(attribute):
+            return attribute
+
+        def guarded(*args, **kwargs):
+            try:
+                return attribute(*args, **kwargs)
+            except ModelUnavailable:
+                raise
+            except Exception as exc:
+                if _is_transport_fault(exc):
+                    raise ModelUnavailable(str(exc)) from exc
+                raise
+
+        return guarded
+
+
 @lru_cache(maxsize=1)
 def get_chat_model():
     s = get_settings()
@@ -32,27 +103,27 @@ def get_chat_model():
         from src.llm.fake import FakeChatModel, warn_fake_backend
 
         warn_fake_backend()
-        return FakeChatModel()
+        return FakeChatModel()  # not guarded: it cannot make a network call
     if s.llm_backend == "ollama":
         from langchain_community.chat_models import ChatOllama
 
         # temperature 0: the Router picks a label and the Verifier returns a verdict.
         # Neither is a creative task, and determinism makes the demo reproducible.
-        return ChatOllama(
+        return _Guarded(ChatOllama(
             model=s.ollama_model,
             base_url=s.ollama_base_url,
             temperature=0,
             timeout=s.llm_timeout_seconds,
             # Keeps the model resident between questions; see the setting's note.
             keep_alive=s.ollama_keep_alive,
-        )
-    return ChatHunyuan(
+        ))
+    return _Guarded(ChatHunyuan(
         hunyuan_app_id=s.hunyuan_app_id,
         hunyuan_secret_id=s.hunyuan_secret_id,
         hunyuan_secret_key=s.hunyuan_secret_key,
         model=s.hunyuan_chat_model,
         streaming=False,
-    )
+    ))
 
 
 def chat_with_logprobs(prompt: str) -> tuple[str, list[dict]] | None:
@@ -140,5 +211,7 @@ def get_embeddings():
         # No keep_alive here: this langchain_community OllamaEmbeddings forbids the
         # field. It matters far less anyway — mxbai-embed-large is 670MB against the
         # chat model's 4.7GB, and a reload of it is milliseconds, not seconds.
-        return OllamaEmbeddings(model=s.ollama_embedding_model, base_url=s.ollama_base_url)
-    return HunyuanEmbeddings()
+        return _Guarded(
+            OllamaEmbeddings(model=s.ollama_embedding_model, base_url=s.ollama_base_url)
+        )
+    return _Guarded(HunyuanEmbeddings())

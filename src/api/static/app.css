@@ -452,16 +452,69 @@ nav a.locked::after {
 .guide p { margin: 16px 0 0; font-size: 13.5px; line-height: 1.6; color: var(--muted); max-width: 66ch; }
 @media (max-width: 560px) { .guide dl { grid-template-columns: 1fr; gap: 4px 0; } }
 
-.identity { display: flex; align-items: center; gap: 8px; }
+/* --- signing in ----------------------------------------------------------- */
+/* One card per seeded persona. What each one SEES is the label that matters: the
+   product's whole argument is that the same question answers differently per caller,
+   so the roster should say so before the first question is asked. */
+.personas { display: flex; flex-wrap: wrap; gap: 10px; max-width: 640px; }
+.personas .section { flex-basis: 100%; margin-bottom: 0; }
+.demo-id {
+  flex: 1 1 260px; display: flex; flex-direction: column; gap: 3px; text-align: left;
+  padding: 13px 15px; border: 1px solid var(--line); border-radius: var(--r-surface);
+  background: var(--surface); color: inherit; font: inherit; cursor: pointer;
+  transition: border-color .15s ease, background .15s ease;
+}
+.demo-id:hover { border-color: var(--accent); background: var(--raised); }
+.demo-id .name { font-weight: 600; }
+.demo-id .role { font: 400 12px/1 var(--mono); color: var(--accent); }
+.demo-id .says { font-size: 13px; color: var(--muted); line-height: 1.45; }
+.own { margin-top: 20px; max-width: 640px; }
+.own summary { cursor: pointer; color: var(--muted); font-size: 13.5px; }
+.own summary:hover { color: var(--ink); }
+.own .panel { margin-top: 12px; }
+/* A grant that has been revoked: kept on the list so it can be given back. */
+.source.gone .ref { opacity: .55; text-decoration: line-through; }
+
+/* A destructive control waiting for its second click. */
+.copy.armed, button.armed {
+  border-color: var(--withheld); color: var(--withheld); font-weight: 500;
+}
+
+.signin-error { color: var(--withheld); font-size: 13.5px; min-height: 1.2em; margin: 10px 0 0; }
+
+.identity { display: flex; align-items: center; gap: 6px; }
+/* One per held identity. The active one is a disabled button rather than a span, so
+   the row reads as one control and the two states line up exactly. */
+.persona {
+  display: flex; align-items: center; gap: 6px; padding: 3px 9px 3px 3px;
+  border: 1px solid transparent; border-radius: var(--r-pill);
+  background: none; color: inherit; font: inherit; cursor: pointer;
+}
+.persona:hover:not(.on) { border-color: var(--line); background: var(--raised); }
+.persona.on { border-color: var(--line); background: var(--raised); cursor: default; }
+.persona:not(.on) { opacity: .62; }
+.persona:not(.on):hover { opacity: 1; }
 .identity .who {
   display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%;
-  background: var(--raised); font: 500 11px/1 var(--mono);
+  background: var(--surface); font: 500 11px/1 var(--mono); flex-shrink: 0;
 }
+.persona.on .who { background: var(--accent); color: var(--accent-ink); }
 .identity .role { font-size: 13px; color: var(--muted); }
 .asking { font-size: 13.5px; color: var(--muted); align-self: center; }
 .asking b { color: var(--ink); font-weight: 500; }
 
 /* --- the thread ----------------------------------------------------------- */
+
+/* The page before the first question: who you are, and the lanes the answer fills. */
+.resting { max-width: 640px; }
+.resting .who-line { font-size: 14px; line-height: 1.6; color: var(--muted); margin: 0 0 22px; max-width: 62ch; }
+.resting .who-line b { color: var(--ink); font-weight: 600; }
+.resting .who-line.quiet { margin: 20px 0 0; font-size: 13px; color: var(--faint); }
+/* No leader line here: these lanes carry a description, and the rule drawn for an
+   unused agent in a real trace squeezed it to "picks the ha…". */
+.resting .lane.off .span::before { content: none; }
+.resting .lane .span { justify-content: flex-start; }
+.resting .lane .span em { font-style: normal; color: var(--muted); }
 
 /* The composer is sticky, so it renders OVER whatever flows beneath it. The thread
    ends with its height in padding, or the last answer sits behind the input box.

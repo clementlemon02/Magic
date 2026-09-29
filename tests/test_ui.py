@@ -315,3 +315,83 @@ def test_the_bar_class_is_not_the_page_header():
     flow = page[page.index("function waterfall("):page.index("function pipeline(")]
     assert 'class="bar"' not in flow, "a lane is using the page header's class again"
     assert 'class="span"' in flow
+
+
+def test_the_audit_count_says_when_the_list_is_capped():
+    """`GET /audit/recent` returns at most 100 rows, and the page printed that as
+    "100 requests" — a flat statement that 100 happened, in the one surface whose
+    whole claim is that it reports what actually did."""
+    page = PAGES["audit"].read_text(encoding="utf-8")
+    assert "const PAGE_LIMIT = 100;" in page
+    assert "requests.length >= PAGE_LIMIT" in page
+
+    # And it has to match the API, or the page is confidently wrong in a new way.
+    import inspect
+
+    from src.agents.audit import recent_requests
+
+    assert inspect.signature(recent_requests).parameters["limit"].default == 100
+
+
+def test_a_declined_request_is_not_listed_as_answered():
+    """It was not withheld, but it was not an answer either — and this list is the
+    officer's worklist, where "answered" means a question got one."""
+    page = PAGES["audit"].read_text(encoding="utf-8")
+    assert 'r.route === "decline" ? "out of scope"' in page
+
+
+def test_a_revoked_grant_stays_listed_so_it_can_be_given_back():
+    """The screen's primary destructive action had no way back: a revoked row left the
+    list entirely, and the page's own `grant` branch was unreachable dead code. A
+    grant revoked in an earlier session was simply invisible."""
+    from src.api.compliance import GRANTS_FOR_SQL
+
+    # The listing must NOT filter on revoked_at, or the row disappears again...
+    assert "revoked_at IS NULL" not in GRANTS_FOR_SQL
+    assert "p.revoked_at" in GRANTS_FOR_SQL
+    # ...and it must stay a listing. Nothing authorizes off it (CLAUDE.md §1).
+    assert "GRANTS_FOR_SQL" not in (
+        Path(__file__).parents[1] / "src/agents/retrieval.py"
+    ).read_text(encoding="utf-8")
+
+    page = PAGES["sources"].read_text(encoding="utf-8")
+    assert 'const live = !g.revoked_at;' in page
+    assert 'data-action="${live ? "revoke" : "grant"}"' in page
+
+
+def test_changing_who_may_read_something_takes_two_clicks_and_reports_failure():
+    """One click used to change a permission. And when the call failed, the button
+    just reset — leaving an officer unable to tell a failed revoke from a done one,
+    which is the worst possible ambiguity on this particular screen."""
+    page = PAGES["sources"].read_text(encoding="utf-8")
+    assert 'Revoke — confirm' in page and 'Grant — confirm' in page
+    assert "did not go through" in page
+    # Not window.confirm(): embedded views return from it at once without showing a
+    # dialog, so the guard would be absent exactly where it is hardest to notice.
+    # Comment lines are skipped — this file explains that choice in one.
+    code = "\n".join(l for l in page.splitlines() if not l.lstrip().startswith("//"))
+    assert "confirm(" not in code
+
+
+def test_the_ask_page_is_not_blank_before_the_first_question():
+    """A judge lands here first, and it used to be an empty band between the lede and
+    the composer. It now names the caller and lays out the agent lanes the answer
+    will fill — the same roster, so the first answer reads as a before and after."""
+    page = PAGES["ask"].read_text(encoding="utf-8")
+    assert "async function resting()" in page
+    assert 'Your question will go through' in page
+    # Cleared by the first turn, and nothing puts it back.
+    assert 'function turn(html, { mine = false } = {}) {\n  $("rest").innerHTML = "";' in page
+
+
+def test_the_resting_state_invents_no_timings():
+    """Everything the page shows about a request has to have come from a request.
+    Plausible round numbers at rest would be indistinguishable from measured ones —
+    and this product's whole argument is a number of seconds."""
+    import re
+
+    page = PAGES["ask"].read_text(encoding="utf-8")
+    resting = page[page.index("async function resting()"):page.index("function turn(html,")]
+    assert not re.search(r"\d+\s*(ms|s)\b", resting), "a fabricated duration at rest"
+    # An em dash in the duration column, which is the honest value for "not yet run".
+    assert 'class="ms">—<' in resting

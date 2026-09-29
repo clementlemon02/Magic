@@ -74,6 +74,8 @@ class Grant(BaseModel):
     source_ref: str
     sensitivity: str | None
     granted_at: datetime
+    # None while live. Set when revoked, so the admin screen can offer it back.
+    revoked_at: datetime | None = None
 
 
 class ChainStatus(BaseModel):
@@ -103,13 +105,21 @@ GRANT_COUNTS_SQL = """
 
 # A person's live grants. Sensitivity comes from the document, so the screen can warn
 # before someone revokes the one thing an officer actually needs.
+# Revoked rows are listed TOO, so a revoke can be undone from the screen that made
+# it. Before this the row simply vanished and the page's own grant path was
+# unreachable — an admin tool whose primary destructive action had no way back.
+#
+# LISTING ONLY. Nothing authorizes off this query: retrieval and the cache
+# fingerprint each run their own `revoked_at IS NULL` predicate (CLAUDE.md §1), and
+# this must never become the thing that decides what someone may read.
 GRANTS_FOR_SQL = """
-    SELECT p.source_platform, p.source_ref, d.sensitivity, p.granted_at
+    SELECT p.source_platform, p.source_ref, d.sensitivity, p.granted_at, p.revoked_at
     FROM permissions AS p
     LEFT JOIN documents AS d
       ON d.source_platform = p.source_platform AND d.source_ref = p.source_ref
-    WHERE p.user_id = %(user_id)s AND p.revoked_at IS NULL
-    ORDER BY d.sensitivity DESC NULLS LAST, p.source_platform, p.source_ref
+    WHERE p.user_id = %(user_id)s
+    ORDER BY (p.revoked_at IS NOT NULL), d.sensitivity DESC NULLS LAST,
+             p.source_platform, p.source_ref
 """
 
 REVOKE_SQL = """
@@ -221,8 +231,9 @@ def build_router(
             with connect() as conn:
                 rows = conn.execute(GRANTS_FOR_SQL, {"user_id": user_id}).fetchall()
             return [
-                Grant(source_platform=p, source_ref=r, sensitivity=s, granted_at=g)
-                for p, r, s, g in rows
+                Grant(source_platform=p, source_ref=r, sensitivity=s,
+                      granted_at=g, revoked_at=v)
+                for p, r, s, g, v in rows
             ]
 
         return await run_in_threadpool(read)

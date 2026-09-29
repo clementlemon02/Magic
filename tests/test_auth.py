@@ -137,3 +137,69 @@ def test_the_role_comes_from_the_database_not_the_token():
     client = _app(user=ALEX)  # the loader answers `support` whoever is asked for
     me = client.get("/auth/me", headers=as_user(2)).json()
     assert me["role"] == "support" and me["clearance_level"] == 0
+
+
+# --- sign-in throttling ---------------------------------------------------------
+
+def _throttled_app(**kw):
+    """An app whose only account is Alex, with a tiny allowance."""
+    from src.api.auth import SlidingWindow, hash_password
+
+    stored = hash_password("demo")
+    return create_app(
+        user_loader=lambda uid: ALEX,
+        credential_loader=lambda email: (1, stored) if email == "alex@x.example" else None,
+        throttle=SlidingWindow(limit=3, window=600.0, **kw),
+    )
+
+
+def _try(client, email, password):
+    return client.post("/auth/login", json={"email": email, "password": password})
+
+
+def test_repeated_wrong_passwords_are_locked_out():
+    client = TestClient(_throttled_app())
+    for _ in range(3):
+        assert _try(client, "alex@x.example", "nope").status_code == 401
+    locked = _try(client, "alex@x.example", "nope")
+    assert locked.status_code == 429
+    assert "Retry-After" in locked.headers
+    # Even the RIGHT password waits: otherwise the lockout is a free oracle for
+    # whether the guess that triggered it was close.
+    assert _try(client, "alex@x.example", "demo").status_code == 429
+
+
+def test_an_address_that_does_not_exist_is_locked_out_the_same_way():
+    """The enumeration property. A lockout that only ever fired for real accounts
+    would answer "does this account exist?" from its own behaviour — which is exactly
+    what the shared error message and the equal-time password check refuse to do."""
+    client = TestClient(_throttled_app())
+    for _ in range(3):
+        assert _try(client, "ghost@x.example", "nope").status_code == 401
+    real = _try(client, "alex@x.example", "nope")
+    ghost = _try(client, "ghost@x.example", "nope")
+    assert ghost.status_code == 429
+    # The real address is not locked by the ghost's own counter, but the shared client
+    # counter catches both — so neither status distinguishes them.
+    assert real.status_code == ghost.status_code
+
+
+def test_a_correct_password_clears_the_counter():
+    """One typo must not follow you for five minutes."""
+    client = TestClient(_throttled_app())
+    for _ in range(2):
+        assert _try(client, "alex@x.example", "nope").status_code == 401
+    assert _try(client, "alex@x.example", "demo").status_code == 200
+    for _ in range(3):
+        assert _try(client, "alex@x.example", "nope").status_code == 401
+
+
+def test_the_window_expires():
+    now = [0.0]
+    from src.api.auth import SlidingWindow
+
+    t = SlidingWindow(limit=2, window=60.0, clock=lambda: now[0])
+    t.record("a"), t.record("a")
+    assert t.retry_after("a") > 0
+    now[0] = 61.0
+    assert t.retry_after("a") == 0.0
