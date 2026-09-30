@@ -68,3 +68,51 @@ def test_the_chat_model_stays_resident_between_questions(monkeypatch):
         assert get_chat_model().keep_alive == "45m"
     finally:
         get_chat_model.cache_clear()
+
+
+# --- embeddings stay resident ---------------------------------------------------
+
+def test_the_embedding_model_is_held_as_long_as_the_chat_model(monkeypatch):
+    """langchain's OllamaEmbeddings cannot express keep_alive — the field does not
+    exist and the model forbids extras — so the embedding model fell back to Ollama's
+    five-minute default while the chat model was held for thirty. Measured with
+    /api/ps: qwen2.5:7b expiring at 10:56, mxbai-embed-large at 10:31.
+
+    The Router embeds before anything else runs, so any question after a five-minute
+    gap paid to reload it. One observed Router node took 11.7s while the Synthesizer
+    and Verifier beside it took 2.7s each, having found a warm chat model.
+    """
+    from src.llm.factory import EMBEDDING_DIM, OllamaKeptEmbeddings
+
+    sent = {}
+
+    class Reply:
+        def raise_for_status(self): pass
+        def json(self): return {"embedding": [0.0] * EMBEDDING_DIM}
+
+    def fake_post(url, json, timeout):
+        sent.update(url=url, **json)
+        return Reply()
+
+    import requests
+    monkeypatch.setattr(requests, "post", fake_post)
+
+    vector = OllamaKeptEmbeddings().embed_query("anything")
+    assert len(vector) == EMBEDDING_DIM
+    assert sent["keep_alive"] == get_settings().ollama_keep_alive
+    assert sent["url"].endswith("/api/embeddings")
+
+
+def test_a_wrong_sized_embedding_is_refused_rather_than_stored(monkeypatch):
+    """The column is VECTOR(1024). A short vector would corrupt every row silently."""
+    from src.llm.factory import OllamaKeptEmbeddings
+
+    class Reply:
+        def raise_for_status(self): pass
+        def json(self): return {"embedding": [0.0] * 768}
+
+    import requests
+    monkeypatch.setattr(requests, "post", lambda *a, **k: Reply())
+
+    with pytest.raises(RuntimeError, match="768-dim"):
+        OllamaKeptEmbeddings().embed_query("anything")

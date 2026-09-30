@@ -165,6 +165,53 @@ def chat_with_logprobs(prompt: str) -> tuple[str, list[dict]] | None:
     return (content, tokens) if tokens else None
 
 
+class OllamaKeptEmbeddings(Embeddings):
+    """Ollama embeddings that stay resident, by calling the API directly.
+
+    langchain_community's OllamaEmbeddings cannot express `keep_alive` — the field
+    does not exist and the model forbids extras — so the embedding model fell back to
+    Ollama's five-minute default while the chat model was held for thirty. Measured
+    with `/api/ps`: qwen2.5:7b expiring at 10:56, mxbai-embed-large at 10:31.
+
+    The Router embeds before anything else runs, so any question after a five-minute
+    gap paid to reload it — which is exactly the shape of a demo. One observed Router
+    node took 11.7s while the Synthesizer and Verifier beside it took 2.7s each,
+    because those two found a chat model that was still warm.
+
+    That wrapper is deprecated anyway, and this is the one setting we actually needed
+    from it.
+    """
+
+    def __init__(self) -> None:
+        s = get_settings()
+        self._url = s.ollama_base_url.rstrip("/") + "/api/embeddings"
+        self._model = s.ollama_embedding_model
+        self._keep_alive = s.ollama_keep_alive
+        self._timeout = s.llm_timeout_seconds
+
+    def embed_query(self, text: str) -> list[float]:
+        import requests
+
+        response = requests.post(
+            self._url,
+            json={"model": self._model, "prompt": text, "keep_alive": self._keep_alive},
+            timeout=self._timeout,
+        )
+        response.raise_for_status()
+        vector = response.json().get("embedding") or []
+        if len(vector) != EMBEDDING_DIM:
+            # Would corrupt every row silently against a VECTOR(1024) column.
+            raise RuntimeError(
+                f"Ollama returned a {len(vector)}-dim embedding, schema expects {EMBEDDING_DIM}"
+            )
+        return vector
+
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        # ponytail: serial, like the Hunyuan one — /api/embeddings takes one prompt.
+        # Parallelise here if ingestion time becomes the bottleneck.
+        return [self.embed_query(t) for t in texts]
+
+
 class HunyuanEmbeddings(Embeddings):
     """langchain's Embeddings interface over Hunyuan's GetEmbedding.
 
@@ -206,12 +253,9 @@ def get_embeddings():
     """
     s = get_settings()
     if s.llm_backend == "ollama":
-        from langchain_community.embeddings import OllamaEmbeddings
-
-        # No keep_alive here: this langchain_community OllamaEmbeddings forbids the
-        # field. It matters far less anyway — mxbai-embed-large is 670MB against the
-        # chat model's 4.7GB, and a reload of it is milliseconds, not seconds.
-        return _Guarded(
-            OllamaEmbeddings(model=s.ollama_embedding_model, base_url=s.ollama_base_url)
-        )
+        # OllamaKeptEmbeddings rather than langchain's wrapper, so OLLAMA_KEEP_ALIVE
+        # applies to this model too. "A reload is milliseconds, not seconds" was the
+        # reason this did not matter; measured, it is seconds, and it lands on the
+        # Router — the first node of every request.
+        return _Guarded(OllamaKeptEmbeddings())
     return _Guarded(HunyuanEmbeddings())
