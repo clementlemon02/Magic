@@ -11,9 +11,10 @@ the MVP; put SSO in front of both before this leaves a demo.
 
 import uuid
 from collections.abc import Callable
+from functools import partial
 from datetime import UTC, datetime, timedelta
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
 
@@ -178,12 +179,23 @@ def build_router(
         return ChainStatus(**report.__dict__)
 
     @router.get("/audit/recent", response_model=list[RequestSummary])
-    async def recent(days: int = 7, limit: int = 100, user: UserContext = Depends(officer)):
+    async def recent(
+        days: int = 7,
+        limit: int = 100,
+        outcome: str = "all",
+        q: str = Query(default="", max_length=200),
+        user: UserContext = Depends(officer),
+    ):
         # Declared before /audit/{request_id}: FastAPI matches in order, and "recent"
         # would otherwise be taken for a request id and 422 on the UUID parse.
+        #
+        # `outcome` and `q` narrow in SQL, before the limit — see recent_requests. A
+        # page that filtered its own fetched window would report "12 refusals" when
+        # the window held 12 of 122.
         since = datetime.now(UTC) - timedelta(days=days)
         rows = await run_in_threadpool(
-            audit.recent_requests, since, limit=min(limit, 500), connect=connect
+            partial(audit.recent_requests, since, limit=min(limit, 500),
+                    outcome=outcome, q=q, connect=connect)
         )
         return [RequestSummary(**row) for row in rows]
 

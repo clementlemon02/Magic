@@ -196,7 +196,10 @@ incomplete review.
   so every hop of a multi-hop request is on the record with its own timestamp and duration. A summary
   of the finished request follows those rows. `request_id`-keyed. `GET /audit/{request_id}` is the only
   path that can read `explanation` back out; `GET /audit/recent` lists requests for an officer to work
-  through, and both are role-gated.
+  through, and both are role-gated. It takes `outcome` (all | refused | answered | declined) and
+  `q`, and both narrow **in SQL, above the LIMIT** — filtering an already-fetched window would
+  report "12 refusals" when the window held 12 of 122. An unknown `outcome` falls back to `all`:
+  a typo must never silently hide rows from an audit surface.
 
 ### SQL Tool — `src/agents/sql_tool.py`
 - In: `query`, `user`. Out: `sql_result`.

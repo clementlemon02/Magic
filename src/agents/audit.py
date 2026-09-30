@@ -213,23 +213,58 @@ RECENT_REQUESTS = """
     LEFT JOIN audit_log AS escalation
       ON escalation.request_id = question.request_id AND escalation.event_type = 'escalation'
     WHERE question.event_type = 'query_received' AND question.created_at >= %(since)s
+      -- Filters applied HERE, not in the page. 306 requests over 7 days against a
+      -- 100-row window: a page that narrowed what it had already fetched would show
+      -- "12 refusals" when the window happened to hold 12 of 122, which is the same
+      -- lie as the count that used to read "100 requests".
+      AND (%(outcome)s = 'all'
+           OR (%(outcome)s = 'refused'  AND escalation.request_id IS NOT NULL)
+           OR (%(outcome)s = 'answered' AND escalation.request_id IS NULL
+               AND question.payload->>'route' IS DISTINCT FROM 'decline')
+           OR (%(outcome)s = 'declined' AND question.payload->>'route' = 'decline'))
+      AND (%(q)s = '' OR question.payload->>'query' ILIKE %(like)s)
     ORDER BY question.created_at DESC
     LIMIT %(limit)s
 """
 
+# What an officer can narrow to. `declined` is worth its own bucket rather than
+# living under `answered`: 50 of those 306 were greetings and "write me a poem",
+# which is noise on a screen whose job is refusals.
+OUTCOMES = ("all", "refused", "answered", "declined")
+
 
 def recent_requests(
-    since: datetime, *, limit: int = 100, connect: Callable = _connect
+    since: datetime,
+    *,
+    limit: int = 100,
+    outcome: str = "all",
+    q: str = "",
+    connect: Callable = _connect,
 ) -> list[dict[str, Any]]:
-    """Every request in the window, newest first, with how it ended.
+    """Requests in the window, newest first, with how each ended.
 
     The asker-facing routes cannot list these: a request id is the key to an
     explanation, so browsing them is an officer's job (src/api/compliance.py).
     The question text comes along because an officer working through refusals needs
     to see what was asked, not a column of UUIDs.
+
+    `outcome` and `q` narrow in SQL, before the limit, so a filtered list is every
+    match in the window rather than the matches that happened to fall inside the
+    newest hundred. An unknown outcome falls back to 'all' — a typo must not silently
+    hide rows from an audit surface.
     """
+    if outcome not in OUTCOMES:
+        outcome = "all"
+    text = (q or "").strip()
     with connect() as conn:
-        rows = conn.execute(RECENT_REQUESTS, {"since": since, "limit": limit}).fetchall()
+        rows = conn.execute(RECENT_REQUESTS, {
+            "since": since, "limit": limit, "outcome": outcome,
+            "q": text,
+            # Bound by the driver like everything else; the wildcards are ours, and
+            # the caller's own % and _ are escaped so a search for "50%" is a search
+            # for "50%" rather than for everything.
+            "like": "%" + text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%",
+        }).fetchall()
     return [
         {
             "request_id": str(request_id),
