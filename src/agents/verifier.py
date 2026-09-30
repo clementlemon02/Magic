@@ -223,12 +223,19 @@ def cited_chunks(chunks: list[Chunk], citations: list[Citation]) -> list[Chunk]:
     return [c for c in chunks if c.citation.document_id in cited] or chunks
 
 
+def _ask(chat_model, prompt: str, answer, query, chunks, sql_result) -> VerificationResult:
+    reply = chat_model.invoke(prompt)
+    return _grounded_in_figures(_parse(getattr(reply, "content", reply)),
+                               answer, query, chunks, sql_result)
+
+
 def verify(
     query: str,
     draft_answer: str | None,
     chunks: list[Chunk],
     sql_result=None,
     chat_model=None,
+    allow_recheck: bool = False,
 ) -> VerificationResult:
     if not draft_answer:
         # The Synthesizer found the permitted evidence insufficient. Nothing to judge;
@@ -247,15 +254,64 @@ def verify(
     if chat_model is None:
         measured = _measured_then_checked(prompt, draft_answer, query, chunks, sql_result)
         if measured is not None:
-            return measured
+            result = measured
+        else:
+            from src.llm.factory import get_chat_model
 
+            chat_model = get_chat_model()
+            result = _ask(chat_model, prompt, draft_answer, query, chunks, sql_result)
+    else:
+        result = _ask(chat_model, prompt, draft_answer, query, chunks, sql_result)
+
+    if result.grounded or len(chunks) <= 1 or not allow_recheck:
+        return result
+
+    # Measured (evals/cases.py, LIVE_REFUND_EVIDENCE): the SGD 2,000 rule is stated
+    # nearly verbatim in one passage and independently confirmed in two more, yet the
+    # joint judge refuses at 0.78 — and the refusal gets MORE confident, not less, as
+    # unrelated passages are added. Checked individually, every passage but one grounds
+    # it cleanly (0.99, 1.00); the remaining one — phrased as an instruction, "above
+    # that ask your team lead", rather than a stated rule — refuses alone too, and
+    # poisons every combination it appears in regardless of what else is there. A
+    # combined context can make a 7B judge worse than its own parts, not better.
+    #
+    # `allow_recheck` defaults OFF and `verify_node` never turns it on. Measured cost:
+    # up to len(chunks) extra sequential model calls, ~3-4s EACH on this hardware — one
+    # genuinely-ungrounded multi-chunk case (nothing rare: any hop-loop refusal that
+    # accumulated more than one chunk) hit 13.26s solo, and a full refusal_timing sweep
+    # with this unconditionally on took refusals escaping the 4.0s deadline from a
+    # documented 0% to 5.7%, against a pre-registered target of <=1% (§12). That is a
+    # regression on the project's one non-negotiable property to fix a single, rarer,
+    # fails-CLOSED accuracy edge case — the wrong trade, so it ships opt-in only, for
+    # evals/run.py's eval_verifier, which is not deadline-bound and legitimately wants
+    # to measure what the Verifier could achieve with more compute than a live request
+    # is allowed to spend. A live request keeps today's (safe, slower-to-improve)
+    # behaviour. See CLAUDE.md §5 and docs/design/constant-time-refusal.md.
+    if chat_model is None:  # the measured path never materialised one
         from src.llm.factory import get_chat_model
 
         chat_model = get_chat_model()
+    return _recheck_each_passage(chat_model, draft_answer, query, chunks, sql_result) or result
 
-    reply = chat_model.invoke(prompt)
-    return _grounded_in_figures(_parse(getattr(reply, "content", reply)),
-                               draft_answer, query, chunks, sql_result)
+
+def _recheck_each_passage(chat_model, answer, query, chunks, sql_result) -> VerificationResult | None:
+    """Only reached when the joint verdict already refused. Only ever used to
+    UNREFUSE: if some single passage the caller may already see clearly supports the
+    answer on its own, noise from combining it with others must not cost the answer.
+    If nothing does, the joint refusal stands — this invents no grounding no passage
+    gives by itself.
+
+    First passage that grounds wins; no need to search for the "best" one once any
+    one of them clears the bar.
+    """
+    for chunk in chunks:
+        prompt = PROMPT_TEMPLATE.format(
+            evidence=_render_evidence([chunk], sql_result), query=query, answer=answer
+        )
+        result = _ask(chat_model, prompt, answer, query, [chunk], sql_result)
+        if result.grounded:
+            return result
+    return None
 
 
 def _grounded_in_figures(

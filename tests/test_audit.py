@@ -231,3 +231,65 @@ def test_only_a_compliance_officer_reaches_compliance_routes(method, path, body,
 def test_a_malformed_request_id_is_rejected_before_the_database():
     r = _client(MARCUS).get("/audit/not-a-uuid", headers=as_user(2))
     assert r.status_code == 422
+
+
+# --- narrowing the worklist -----------------------------------------------------
+
+class _FakeConn:
+    """Captures the parameters a query was bound with."""
+
+    def __init__(self, store):
+        self.store = store
+
+    def execute(self, sql, params):
+        self.store["sql"], self.store["params"] = sql, params
+        return self
+
+    def fetchall(self):
+        return []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+def _ran(**kwargs):
+    from src.agents.audit import recent_requests
+
+    seen: dict = {}
+    recent_requests(datetime.now(UTC), connect=lambda: _FakeConn(seen), **kwargs)
+    return seen
+
+
+def test_the_worklist_narrows_in_sql_not_in_the_page():
+    """306 requests over seven days against a hundred-row window. A page that filtered
+    what it had already fetched would report "12 refusals" when the window happened to
+    hold 12 of 122 — the same lie as the count that used to read "100 requests". So
+    the predicate has to sit above the LIMIT."""
+    from src.agents.audit import RECENT_REQUESTS
+
+    where = RECENT_REQUESTS.index("WHERE")
+    limit = RECENT_REQUESTS.index("LIMIT")
+    assert "%(outcome)s" in RECENT_REQUESTS[where:limit]
+    assert "%(like)s" in RECENT_REQUESTS[where:limit]
+
+    assert _ran(outcome="refused")["params"]["outcome"] == "refused"
+
+
+def test_an_unknown_outcome_shows_everything_rather_than_nothing():
+    """A typo in a filter must not silently hide rows from an audit surface. There is
+    no safe way to guess what someone meant, and the honest fallback is everything."""
+    assert _ran(outcome="refsued")["params"]["outcome"] == "all"
+    assert _ran(outcome="")["params"]["outcome"] == "all"
+
+
+def test_a_search_for_a_wildcard_is_a_search_for_that_wildcard():
+    """The % and _ in a caller's text are theirs, not LIKE's. Unescaped, searching
+    "50%" matches every row, which on this page reads as "your filter found
+    everything" rather than "your filter did nothing"."""
+    assert _ran(q="50%")["params"]["like"] == r"%50\%%"
+    assert _ran(q="a_b")["params"]["like"] == r"%a\_b%"
+    assert _ran(q="  spaced  ")["params"]["q"] == "spaced"
+    assert _ran(q="")["params"]["q"] == ""

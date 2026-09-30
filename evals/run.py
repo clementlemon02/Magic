@@ -83,7 +83,12 @@ def eval_verifier(chat) -> dict:
     caught = grounded_ok = n_bad = n_good = 0
     notes = []
     for question, answer, evidence, should_be_grounded in VERIFIER_CASES:
-        result = verify(question, answer, evidence, chat_model=chat)
+        # allow_recheck=True: this eval is not deadline-bound, so it measures what the
+        # Verifier can achieve with the extra per-passage calls a live request cannot
+        # afford — see the note in src/agents/verifier.py on why verify_node never
+        # turns this on (5.7% of refusals escaped the 4.0s deadline when it was
+        # unconditional, against a target of <=1%).
+        result = verify(question, answer, evidence, chat_model=chat, allow_recheck=True)
         if should_be_grounded:
             n_good += 1
             if result.grounded:

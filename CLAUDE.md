@@ -181,6 +181,15 @@ incomplete review.
   in the evidence or in the question; if it does not, the verdict is downgraded to ungrounded. One
   direction only — it can never turn ungrounded into grounded. Took hallucinations caught from 7/8
   to 8/8, and it does NOT fire on the same answer when all four passages are present.
+- **A joint refusal can be re-checked passage by passage — `allow_recheck`, default OFF.** A separate
+  known failure (fails CLOSED): "refunds above SGD 2,000 need team lead approval" stated nearly
+  verbatim in one passage and confirmed in two more, yet the joint judge refused at 0.78 — one
+  passage's instructional phrasing poisoned every combination it appeared in, individually and
+  jointly. `_recheck_each_passage` fixes it by asking per passage and taking the first that grounds,
+  but the fix is NOT wired into `verify_node`: measured worst case ~13s (up to one extra model call per
+  chunk), and a full `evals/refusal_timing.py --padded` sweep with it unconditional took refusals
+  escaping the 4.0s deadline from a documented 0% to 5.7% against the ≤1% target (§12). `evals/run.py`
+  passes `allow_recheck=True` since it is not deadline-bound; a live request never does.
 
 ### Permission-Conflict + Escalation — `src/agents/escalation.py`
 - In: `permission_conflicts`, `verification`, `user`. Out: `final_answer`, `explanation`, `escalated`,
@@ -196,7 +205,10 @@ incomplete review.
   so every hop of a multi-hop request is on the record with its own timestamp and duration. A summary
   of the finished request follows those rows. `request_id`-keyed. `GET /audit/{request_id}` is the only
   path that can read `explanation` back out; `GET /audit/recent` lists requests for an officer to work
-  through, and both are role-gated.
+  through, and both are role-gated. It takes `outcome` (all | refused | answered | declined) and
+  `q`, and both narrow **in SQL, above the LIMIT** — filtering an already-fetched window would
+  report "12 refusals" when the window held 12 of 122. An unknown `outcome` falls back to `all`:
+  a typo must never silently hide rows from an audit surface.
 
 ### SQL Tool — `src/agents/sql_tool.py`
 - In: `query`, `user`. Out: `sql_result`.
@@ -273,7 +285,7 @@ request**, so a token cannot assert a role and walk past the §1 predicate. That
 ```python
 def build_response(state: GraphState) -> AskerResponse:
     if state.escalated:
-        return AskerResponse(text="I don't have an answer you're permitted to see for this request.")
+        return AskerResponse(text="I can't answer that. This is the same message whatever the reason.")
     return AskerResponse(text=state.final_answer, citations=state.citations)
 
 def build_audit_explanation(request_id: str) -> ComplianceExplanation:

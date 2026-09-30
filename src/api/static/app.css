@@ -289,10 +289,36 @@ tbody tr:hover { background: var(--surface); }
 
 /* --- audit ---------------------------------------------------------------- */
 
-.split { display: flex; gap: 22px; align-items: flex-start; }
+/* Master and detail, each pinned below the app bar with its own scroll.
+   Unbounded, the worklist grew to its content: 100 audit rows measured 8713px, so
+   the page ran to twelve screens and the detail panel sat stranded at the top while
+   you scrolled a mile of list past it. `align-items: flex-start` is load-bearing —
+   the default `stretch` makes each column as tall as the row, and a sticky element
+   that already fills its container never sticks to anything.
+   dvh, not vh: on a phone vh is the tallest the viewport ever gets, so the panes
+   would be cut off by the browser's own toolbars. */
+.split {
+  display: flex; gap: 22px; align-items: flex-start;
+  --split-top: calc(56px + env(safe-area-inset-top, 0px) + 16px);
+}
+.worklist, .detail {
+  position: sticky; top: var(--split-top);
+  max-height: calc(100dvh - var(--split-top) - 16px);
+  overflow-y: auto; overscroll-behavior: contain;
+}
 .worklist { width: 340px; flex-shrink: 0; }
 .detail { flex: 1 1 0; min-width: 0; }
-@media (max-width: 820px) { .split { flex-direction: column; } .worklist { width: 100%; } }
+@media (max-width: 820px) {
+  /* Stacked, so pinning both would leave the second one permanently below the fold.
+     The page scrolls normally — but the LIST still gets a ceiling, because a
+     hundred unbounded rows put the detail 9131px down, and "scroll to it" then
+     means animating past nine thousand pixels of list. Bounded, the detail is
+     always a short scroll below whatever you just picked. */
+  .split { flex-direction: column; }
+  .worklist { width: 100%; max-height: 55dvh; }
+  .detail { position: static; max-height: none; overflow-y: visible; }
+  .worklist { position: static; }
+}
 
 /* A list of requests, not twenty cards: hairline separators, and the selected one
    takes a fill rather than an outline. */

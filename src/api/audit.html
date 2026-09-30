@@ -34,6 +34,14 @@
       </div>
       <button id="go" type="button">Refresh</button>
       <button class="ghost" id="verify" type="button">Verify chain</button>
+      <div class="mode" role="tablist" aria-label="Show which requests">
+        <button id="f-all" type="button" role="tab" aria-selected="true" data-outcome="all">All</button>
+        <button id="f-refused" type="button" role="tab" aria-selected="false" data-outcome="refused">Refused</button>
+        <button id="f-answered" type="button" role="tab" aria-selected="false" data-outcome="answered">Answered</button>
+        <button id="f-declined" type="button" role="tab" aria-selected="false" data-outcome="declined">Out of scope</button>
+      </div>
+      <input id="search" type="search" placeholder="Search the question…" style="width:210px"
+        autocomplete="off" spellcheck="false">
       <div class="spacer" style="margin-left:auto"></div>
       <div class="readout" id="count" hidden>
         <span class="big" id="count-n">0</span><span class="unit" id="count-unit">requests</span>
@@ -71,6 +79,10 @@ const TONE = { escalation: "bad", permission_conflict: "bad", source_recheck_den
                final_answer: "good", draft_answer: "good" };
 
 function renderList() {
+  if (!requests.length && (outcome() !== "all" || $("search").value.trim())) {
+    return `<div class="note">Nothing matches that filter in the last
+      ${esc($("days").value)} days. <b>All</b> puts everything back.</div>`;
+  }
   if (!requests.length) {
     return `<div class="note">No requests in this window. Ask something on the
       <a href="/">Ask</a> page and it will appear here.</div>`;
@@ -137,11 +149,24 @@ function renderDetail(report) {
   return explanation + conflicts + events;
 }
 
+/* Filtering happens in SQL, not here. 306 requests over seven days against a
+   hundred-row window: narrowing what the page had already fetched would report
+   "12 refusals" when the window held 12 of 122 — the same lie as the count that
+   used to read "100 requests". So every change refetches. */
+function outcome() {
+  const on = document.querySelector('.mode [aria-selected="true"]');
+  return on ? on.dataset.outcome : "all";
+}
+
 async function loadList() {
   $("list").innerHTML = `<div class="note">Loading…</div>`;
   $("count").hidden = true;
-  const response = await IB.api(`/audit/recent?days=${encodeURIComponent($("days").value)}`,
-    {}).catch(() => null);
+  const where = new URLSearchParams({
+    days: $("days").value,
+    outcome: outcome(),
+    q: $("search").value.trim(),
+  });
+  const response = await IB.api(`/audit/recent?${where}`, {}).catch(() => null);
   if (!response) {
     $("list").innerHTML = `<div class="note alert"><b>Cannot reach the API.</b></div>`;
     return;
@@ -152,8 +177,11 @@ async function loadList() {
   // figure is unknown-and-larger is a wrong number in the one surface whose entire
   // claim is that it reports what happened.
   const capped = requests.length >= PAGE_LIMIT;
+  const narrowed = outcome() !== "all" || $("search").value.trim();
   $("count-n").textContent = capped ? `${PAGE_LIMIT}+` : requests.length;
-  $("count-unit").textContent = capped ? "newest shown" : "requests";
+  $("count-unit").textContent = capped
+    ? "newest shown"
+    : narrowed ? "matching" : "requests";
   $("count").hidden = false;
   $("list").innerHTML = renderList();
   $("detail").innerHTML = requests.length
@@ -191,9 +219,34 @@ async function verifyChain() {
 
 $("list").addEventListener("click", (e) => {
   const button = e.target.closest(".request");
-  if (button) loadDetail(button.dataset.id);
+  if (!button) return;
+  loadDetail(button.dataset.id);
+  // Stacked layout only: the detail sits BELOW a hundred rows there, so picking one
+  // would otherwise load a trail you cannot see without scrolling past the whole
+  // list. Side by side the two panes are pinned and both are already in view, and
+  // scrolling then would just twitch the page for no reason.
+  if (window.matchMedia("(max-width: 820px)").matches) {
+    $("detail").scrollIntoView({ block: "start", behavior: "smooth" });
+  }
 });
 $("go").addEventListener("click", loadList);
+
+document.querySelector(".mode").addEventListener("click", (e) => {
+  const tab = e.target.closest("[data-outcome]");
+  if (!tab) return;
+  for (const other of document.querySelectorAll(".mode [data-outcome]")) {
+    other.setAttribute("aria-selected", String(other === tab));
+  }
+  loadList();
+});
+
+// Debounced: each keystroke is a query against the audit table, and holding one
+// key down should not be a hundred of them.
+let typing = null;
+$("search").addEventListener("input", () => {
+  clearTimeout(typing);
+  typing = setTimeout(loadList, 250);
+});
 $("verify").addEventListener("click", verifyChain);
 for (const id of ["days"]) {
   $(id).addEventListener("keydown", (e) => { if (e.key === "Enter") loadList(); });

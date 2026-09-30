@@ -188,7 +188,11 @@ function pipeline(trace, { running = false, seconds = null } = {}) {
 }
 
 /* --- asking --------------------------------------------------------------- */
-const REFUSAL = "I don't have an answer you're permitted";
+// A prefix of GENERIC_REFUSAL (src/graph/state.py). Duplicated across the wire on
+// purpose — the page has to recognise a refusal to render it differently — and
+// pinned to the server's copy by a test, because drifting them apart would silently
+// stop every refusal being recognised while still looking like it worked.
+const REFUSAL = "I can't answer that.";
 
 function startClock() {
   const began = performance.now();
@@ -277,10 +281,11 @@ function renderAnswer(reply, seconds, { bare = false } = {}) {
 
   const why = bare || !withheld
     ? ""
-    : `<div class="note alert">Every refusal is this same sentence, whether the answer was
-         restricted, unsupported or simply missing. The specific reason <b>was</b> recorded,
-         and only a compliance officer can read it back — via <code>GET /audit/{request_id}</code>
-         or the <a href="/dashboard">gaps dashboard</a>.</div>`;
+    : `<div class="note alert">It was one of three: the material is restricted to you,
+         nothing supported an answer, or <b>nothing here covers the question at all</b> —
+         which is the commonest by far. Which one <b>was</b> recorded, and only a compliance
+         officer can read it back, via <code>GET /audit/{request_id}</code> or the
+         <a href="/dashboard">gaps dashboard</a>.</div>`;
 
   return `<div class="answer ${withheld ? "withheld" : ""}">${esc(reply.text)}${sources}</div>${held}${why}`;
 }

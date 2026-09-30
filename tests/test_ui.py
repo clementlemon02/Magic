@@ -85,9 +85,27 @@ def test_the_ask_page_embeds_no_answers():
 
 def test_the_ask_page_carries_the_refusal_string_only_to_recognise_it():
     """§5: the page styles a refusal differently, so it has to match the one string —
-    but it must never author a refusal of its own."""
+    but it must never author a refusal of its own.
+
+    Derived from GENERIC_REFUSAL rather than spelled out again. This test used to
+    hardcode the wording, which made it the second place to update and the one that
+    would fail loudly while the PAGE failed silently: a prefix that no longer matches
+    means every refusal renders as an ordinary answer, with the deadline note and the
+    withheld styling quietly absent.
+    """
+    import re
+
+    from src.graph.state import GENERIC_REFUSAL
+
     page = PAGES["ask"].read_text(encoding="utf-8")
-    assert page.count("I don't have an answer you're permitted") == 1
+    declared = re.search(r'const REFUSAL = "([^"]+)";', page)
+    assert declared, "the page no longer declares a REFUSAL constant"
+    prefix = declared.group(1).replace("\\'", "'")
+    assert GENERIC_REFUSAL.startswith(prefix), (
+        f"the page matches {prefix!r}, which is not a prefix of {GENERIC_REFUSAL!r} — "
+        "every refusal would render as an answer"
+    )
+    assert len(prefix) >= 12, "too short to distinguish a refusal from an answer"
     assert "startsWith" in page
 
 
@@ -395,3 +413,37 @@ def test_the_resting_state_invents_no_timings():
     assert not re.search(r"\d+\s*(ms|s)\b", resting), "a fabricated duration at rest"
     # An em dash in the duration column, which is the honest value for "not yet run".
     assert 'class="ms">—<' in resting
+
+
+def test_a_master_detail_list_has_a_ceiling():
+    """The audit worklist grew to its content: 100 rows measured 8713px, so the page
+    ran to twelve screens and the detail panel sat stranded at the top while you
+    scrolled a mile of list past it. Both columns are bounded and scroll on their
+    own now — 11.9 screens to 1.4."""
+    from src.api.ui import STYLESHEET
+
+    css = STYLESHEET.read_text(encoding="utf-8")
+    split = _rule(css, ".worklist, .detail")
+    assert "position: sticky" in split
+    assert "max-height" in split and "overflow-y: auto" in split
+    # dvh, not vh: on a phone vh is the tallest the viewport ever gets, so the panes
+    # would be cut off by the browser's own toolbars.
+    assert "100dvh" in split and "100vh" not in split
+
+    # Sticky needs the row NOT to stretch its children: an element already as tall as
+    # its container has nowhere to stick to.
+    assert "align-items: flex-start" in _rule(css, ".split")
+
+    # Stacked, the list keeps a ceiling too. Unbounded it put the detail 9131px down.
+    assert "max-height: 55dvh" in css
+
+
+def test_the_audit_filters_refetch_rather_than_narrowing_what_is_loaded():
+    """The count says "matching" when narrowed, and it has to be true. Filtering the
+    already-fetched window would report 12 refusals when the window held 12 of 122 —
+    306 requests over seven days against a hundred-row limit."""
+    page = PAGES["audit"].read_text(encoding="utf-8")
+    assert "outcome: outcome()" in page and "q: $(\"search\").value.trim()" in page
+    # Every control refetches; none of them filters `requests` in place.
+    assert page.count("loadList()") >= 3
+    assert "requests.filter(" not in page
