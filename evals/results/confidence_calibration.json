@@ -139,6 +139,16 @@
       "correct": 1,
       "self": 1.0,
       "measured": 0.9999999630774189
+    },
+    {
+      "question": "Can I approve a SGD 3,000 refund myself?",
+      "answer": "No, refunds above SGD 2,000 need team lead approval before they are issued.",
+      "n_passages": 1,
+      "expected": false,
+      "verdict": true,
+      "correct": 0,
+      "self": 1.0,
+      "measured": 0.9244491403191961
     }
   ],
   "sweep": [
@@ -174,12 +184,12 @@
     },
     {
       "threshold": 0.95,
-      "caught": 1,
+      "caught": 2,
       "needless": 1
     },
     {
       "threshold": 0.99,
-      "caught": 1,
+      "caught": 2,
       "needless": 1
     }
   ]

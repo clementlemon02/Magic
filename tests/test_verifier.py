@@ -297,3 +297,85 @@ def test_a_grounded_answer_whose_figures_are_all_present_is_left_alone():
     assert _grounded_in_figures(
         judged, "Customers have 45 days.", "How long?", _ev("contest within 45 days"), None
     ) is judged
+
+
+# --- the gated multi-passage recheck --------------------------------------------
+
+class _RoutingChat:
+    """Replies based on which chunk's content is in the prompt, and counts calls —
+    so a test can assert exactly how many extra model calls a fix costs."""
+
+    def __init__(self, replies: dict[str, str], default: str):
+        self.replies = replies
+        self.default = default
+        self.calls = 0
+
+    def invoke(self, prompt):
+        self.calls += 1
+        for marker, reply in self.replies.items():
+            if marker in prompt:
+                return type("Reply", (), {"content": reply})()
+        return type("Reply", (), {"content": self.default})()
+
+
+def _labelled_chunk(n: int, content: str) -> Chunk:
+    return Chunk(
+        id=n, document_id=n, content=content, acl_tags=["support"], score=0.9,
+        citation=Citation(document_id=n, title="t", source_platform="confluence", source_ref=f"r{n}"),
+    )
+
+
+UNGROUNDED = '{"grounded": false, "unsupported": ["x"], "confidence": 0.8}'
+GROUNDED = '{"grounded": true, "unsupported": [], "confidence": 0.95}'
+
+
+def test_allow_recheck_defaults_off():
+    """The property that matters most: omitting the flag must cost exactly one model
+    call, whatever the evidence looks like — a live request cannot afford more."""
+    chat = _RoutingChat({}, default=UNGROUNDED)  # every prompt refuses
+    chunks = [_labelled_chunk(1, "clearly states the rule"), _labelled_chunk(2, "unrelated")]
+    result = verify("q", "an answer", chunks, chat_model=chat)
+    assert not result.grounded
+    assert chat.calls == 1, "the recheck fired despite allow_recheck being omitted"
+
+
+def test_allow_recheck_true_rescues_a_passage_the_joint_read_missed():
+    """The fix, opted into. One passage alone grounds it even though the joint
+    prompt (which contains both chunks) does not."""
+    chat = _RoutingChat({"THE-CLEAR-ONE": GROUNDED}, default=UNGROUNDED)
+    chunks = [_labelled_chunk(1, "THE-CLEAR-ONE states it plainly"), _labelled_chunk(2, "confusing filler")]
+    result = verify("q", "an answer", chunks, chat_model=chat, allow_recheck=True)
+    assert result.grounded
+    # joint (1) + at most len(chunks) rechecks (2) — bounded, not unbounded
+    assert chat.calls <= 3
+
+
+def test_allow_recheck_true_still_refuses_when_nothing_alone_grounds_it():
+    """Must not invent grounding no single passage gives — every call, joint and
+    per-passage, genuinely refuses here."""
+    chat = _RoutingChat({}, default=UNGROUNDED)
+    chunks = [_labelled_chunk(1, "a"), _labelled_chunk(2, "b"), _labelled_chunk(3, "c")]
+    result = verify("q", "an answer", chunks, chat_model=chat, allow_recheck=True)
+    assert not result.grounded
+    assert chat.calls == 1 + len(chunks), "should try every passage before giving up"
+
+
+def test_recheck_never_fires_with_a_single_chunk():
+    """Nothing to recheck against — nothing else the answer could have come from."""
+    chat = _RoutingChat({}, default=UNGROUNDED)
+    result = verify("q", "an answer", [_labelled_chunk(1, "only chunk")], chat_model=chat, allow_recheck=True)
+    assert not result.grounded
+    assert chat.calls == 1
+
+
+def test_verify_node_never_turns_the_recheck_on():
+    """A live request cannot afford it — measured worst case ~13s, and a full
+    refusal_timing sweep with it unconditional took escapes from 0% to 5.7% against
+    the <=1% target. This is the one place that must never pass allow_recheck=True;
+    grep rather than trust a docstring, since a docstring does not fail CI."""
+    import inspect
+
+    from src.agents import verifier
+
+    source = inspect.getsource(verifier.verify_node)
+    assert "allow_recheck" not in source

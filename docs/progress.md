@@ -120,20 +120,26 @@ The test suite no longer touches demo data (fixed in #16).
 | `conflict_calibration` | Conflict check on the seeded corpus | 8/9 raised, 0/13 false |
 | `refusal_timing` (`--padded`) | Whether refusal timing reveals the cause | all four §12 criteria pass; 0% escape |
 | `router_student` | Distilled Router vs teacher | see #21 |
-| `confidence_calibration` | Verifier confidence: Brier, and a threshold sweep | measured 0.0442 vs self-reported 0.0743 |
+| `confidence_calibration` | Verifier confidence: Brier, and a threshold sweep | measured 0.0982 vs self-reported 0.1360 (30 Sep; grows with `VERIFIER_CASES`) |
 | `cache_probe` | Permission-aware cache | — |
 
 ## 5. Open issues
 
-1. **Verifier false refusal.** "Can I approve a SGD 3,000 refund
-   myself?" is refused end to end. Fails closed. **The cause is not passage count**, as
-   this was previously recorded here: per passage, with the same answer, the judge
-   refuses against `drive:file-refund-playbook` (conf 1.000) and accepts against
-   `confluence:SUPPORT/refund-policy` (0.992), `jira:SUPPORT/PLAT-101` (1.000) and
-   `slack:support-updates` (0.924). The playbook states the rule as "above that ask your
-   team lead" — an anaphor — and its presence flips the verdict even when the verbatim
-   passage is there too. Narrowing to cited passages (3 of 4) did not fix it, and made
-   the judge MORE confident in the wrong verdict: 0.781 -> 0.911.
+1. **Verifier false refusal — root-caused, fix built, deliberately not shipped live.**
+   "Can I approve a SGD 3,000 refund myself?" is refused end to end even though the
+   SGD 2,000 rule is stated nearly verbatim in `confluence:SUPPORT/refund-policy` and
+   confirmed in two more passages. Per passage, three of four ground it cleanly
+   (0.99-1.00); `drive:file-refund-playbook`'s phrasing ("above that ask your team
+   lead", an instruction rather than a stated fact) refuses alone, and poisons every
+   combination it appears in — the joint refusal gets MORE confident as more passages
+   are added, not less. `_recheck_each_passage` (`allow_recheck=True`) fixes it: ask
+   per passage, take the first that grounds. **Not wired into `verify_node`.** Measured
+   worst case ~13s per verification, and a full `refusal_timing.py --padded` sweep with
+   it unconditional took refusals escaping the 4.0s deadline from a documented 0% to
+   5.7% against the ≤1% target (§12) — a regression on the one non-negotiable property
+   to fix a single, rarer, fails-CLOSED accuracy edge case. `evals/run.py` opts in
+   (not deadline-bound); the live graph does not. Verifier — grounded answers kept:
+   6/7 → 7/7 in the eval, unchanged in production.
 2. **Known limits, documented in code:** the audit chain cannot detect truncation of
    its newest rows; a revoked user's refusals on internal documents can appear as
    knowledge gaps; `AUTH_SECRET` is a committed demo key with no refresh, revocation
@@ -144,8 +150,8 @@ direction. A `grounded` verdict is now checked against the figures in code — e
 answer states must appear in the evidence or the question, or the verdict is downgraded
 (`verifier.unsupported_quantities`, one direction only). Hallucinations caught 7/8 → 8/8. The
 check is precise about it: on the same answer with all four passages present, where SGD 2,000
-genuinely appears, it does not fire, so the remaining false refusal above is unchanged and is
-still the model's own.
+genuinely appears, it does not fire — so it never masked the false refusal above; that one
+needed its own, separate fix (§5.1), which exists but ships gated off for the reason stated there.
 
 Also closed in #29: the `clarify` dumping ground (every non-question — greetings, thanks,
 "write me a poem" — was answered with a clarifying question), and cache hits being audited with
