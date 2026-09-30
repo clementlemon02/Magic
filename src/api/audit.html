@@ -191,7 +191,15 @@ async function verifyChain() {
 
 $("list").addEventListener("click", (e) => {
   const button = e.target.closest(".request");
-  if (button) loadDetail(button.dataset.id);
+  if (!button) return;
+  loadDetail(button.dataset.id);
+  // Stacked layout only: the detail sits BELOW a hundred rows there, so picking one
+  // would otherwise load a trail you cannot see without scrolling past the whole
+  // list. Side by side the two panes are pinned and both are already in view, and
+  // scrolling then would just twitch the page for no reason.
+  if (window.matchMedia("(max-width: 820px)").matches) {
+    $("detail").scrollIntoView({ block: "start", behavior: "smooth" });
+  }
 });
 $("go").addEventListener("click", loadList);
 $("verify").addEventListener("click", verifyChain);

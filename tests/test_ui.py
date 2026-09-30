@@ -413,3 +413,26 @@ def test_the_resting_state_invents_no_timings():
     assert not re.search(r"\d+\s*(ms|s)\b", resting), "a fabricated duration at rest"
     # An em dash in the duration column, which is the honest value for "not yet run".
     assert 'class="ms">—<' in resting
+
+
+def test_a_master_detail_list_has_a_ceiling():
+    """The audit worklist grew to its content: 100 rows measured 8713px, so the page
+    ran to twelve screens and the detail panel sat stranded at the top while you
+    scrolled a mile of list past it. Both columns are bounded and scroll on their
+    own now — 11.9 screens to 1.4."""
+    from src.api.ui import STYLESHEET
+
+    css = STYLESHEET.read_text(encoding="utf-8")
+    split = _rule(css, ".worklist, .detail")
+    assert "position: sticky" in split
+    assert "max-height" in split and "overflow-y: auto" in split
+    # dvh, not vh: on a phone vh is the tallest the viewport ever gets, so the panes
+    # would be cut off by the browser's own toolbars.
+    assert "100dvh" in split and "100vh" not in split
+
+    # Sticky needs the row NOT to stretch its children: an element already as tall as
+    # its container has nowhere to stick to.
+    assert "align-items: flex-start" in _rule(css, ".split")
+
+    # Stacked, the list keeps a ceiling too. Unbounded it put the detail 9131px down.
+    assert "max-height: 55dvh" in css
