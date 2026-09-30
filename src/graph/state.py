@@ -45,7 +45,20 @@ EscalationReason = Literal[
 
 # The exact asker-facing refusal (CLAUDE.md §5). Lives here because Escalation
 # writes it and the API layer asserts on it — a judged demo moment, so one string.
-GENERIC_REFUSAL = "I don't have an answer you're permitted to see for this request."
+#
+# It used to read "I don't have an answer you're permitted to see for this request."
+# That is true in all three cases and leaks nothing — it is the same sentence
+# whatever happened — but it PARSES as "an answer exists and you are not allowed it",
+# so the most common refusal (nothing in the corpus covers the question) read as the
+# rarest one. A reader hit exactly that: they asked for a parental leave policy, got
+# this, and concluded a normal HR document had been locked away. The recorded reason
+# was `insufficient_evidence` — there is no HR content at all.
+#
+# The replacement states the outcome and says nothing about the cause, then says so
+# explicitly. Naming the silence is more honest than a sentence that quietly points
+# at one of the three causes, and it costs nothing: the wording is fixed, so a reader
+# learns only what the design already advertises.
+GENERIC_REFUSAL = "I can't answer that. This is the same message whatever the reason."
 
 # The `decline` route's reply: the message was not a question about this company's
 # knowledge at all. Distinct from GENERIC_REFUSAL on purpose, and safe to be

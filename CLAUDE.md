@@ -273,7 +273,7 @@ request**, so a token cannot assert a role and walk past the §1 predicate. That
 ```python
 def build_response(state: GraphState) -> AskerResponse:
     if state.escalated:
-        return AskerResponse(text="I don't have an answer you're permitted to see for this request.")
+        return AskerResponse(text="I can't answer that. This is the same message whatever the reason.")
     return AskerResponse(text=state.final_answer, citations=state.citations)
 
 def build_audit_explanation(request_id: str) -> ComplianceExplanation:

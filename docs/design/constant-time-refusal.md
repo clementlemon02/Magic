@@ -17,6 +17,12 @@ That turns the refusal into a **timing oracle for the existence of restricted do
 
 The threat actor is the ordinary authenticated asker, which is exactly who the refusal exists to withhold from.
 
+### 1a. The sentence had the same problem, quietly
+
+Fixed 30 Sep. The refusal read *"I don't have an answer you're permitted to see for this request."* One string, identical in all three cases, so it leaked nothing measurable — but it **parses** as the first of the two readings above. A reader asked for a parental leave policy, got it, and concluded a normal HR document had been locked away; the recorded reason was `insufficient_evidence`, and there is no HR content in the corpus at all.
+
+Nothing was exploitable: the wording is fixed, so a caller learns the same nothing either way. What was wrong is that the commonest cause by far — we have nothing on it — was dressed as the rarest one, and the sentence quietly argued for a reading the design spends a whole document refusing to support. It now reads *"I can't answer that. This is the same message whatever the reason."*, which states the outcome and declines to point anywhere. The asker-facing note names all three causes, so the neutrality is explained rather than merely performed.
+
 ## 2. Objective
 
 Make a refusal indistinguishable **by time** as well as by content, so that no timing measurement a caller can take separates a permission-conflict refusal from any other refusal — without changing the latency of answers or clarifications.

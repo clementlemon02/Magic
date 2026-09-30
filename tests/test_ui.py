@@ -85,9 +85,27 @@ def test_the_ask_page_embeds_no_answers():
 
 def test_the_ask_page_carries_the_refusal_string_only_to_recognise_it():
     """§5: the page styles a refusal differently, so it has to match the one string —
-    but it must never author a refusal of its own."""
+    but it must never author a refusal of its own.
+
+    Derived from GENERIC_REFUSAL rather than spelled out again. This test used to
+    hardcode the wording, which made it the second place to update and the one that
+    would fail loudly while the PAGE failed silently: a prefix that no longer matches
+    means every refusal renders as an ordinary answer, with the deadline note and the
+    withheld styling quietly absent.
+    """
+    import re
+
+    from src.graph.state import GENERIC_REFUSAL
+
     page = PAGES["ask"].read_text(encoding="utf-8")
-    assert page.count("I don't have an answer you're permitted") == 1
+    declared = re.search(r'const REFUSAL = "([^"]+)";', page)
+    assert declared, "the page no longer declares a REFUSAL constant"
+    prefix = declared.group(1).replace("\\'", "'")
+    assert GENERIC_REFUSAL.startswith(prefix), (
+        f"the page matches {prefix!r}, which is not a prefix of {GENERIC_REFUSAL!r} — "
+        "every refusal would render as an answer"
+    )
+    assert len(prefix) >= 12, "too short to distinguish a refusal from an answer"
     assert "startsWith" in page
 
 
