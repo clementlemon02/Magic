@@ -273,22 +273,30 @@ function renderAnswer(reply, seconds, { bare = false } = {}) {
       }).join("")}
     </div>` : "";
 
-  // Timing is content here, not chrome: a refusal held to the deadline is the
-  // property that stops the clock from saying what the words won't. Claim it only
-  // when the clock agrees — a refusal that ran long escaped, and saying otherwise
-  // next to a number that contradicts it discredits the whole guarantee. The upper
-  // bound allows for the browser round-trip on top of the server's own padding.
+  // Timing is content here, not chrome. With the hold on, a refusal held to the deadline is the
+  // property that stops the clock saying what the words won't; with it off, the clock is a side
+  // channel and the page says so. Either way, claim only what the server is actually running
+  // (HOLD) and only when the number beside it agrees: a refusal that ran long escaped, and saying
+  // otherwise next to a number that contradicts it discredits the whole guarantee. The upper
+  // bound allows for the browser round-trip on top of the server's own hold.
   let held = "";
-  if (bare) {
+  if (bare || !withheld) {
     held = "";
-  } else if (withheld && seconds >= 3.9 && seconds <= 4.6) {
-    held = `<div class="note"><b>Held to the 4.0s deadline.</b> Every refusal takes the same
-      time whatever caused it, so timing this answer tells you nothing the sentence doesn't.
-      Unpadded, a permission refusal returns in about 0.9s and an unanswerable one in 4.3s —
-      enough to map what restricted material exists without ever seeing it.</div>`;
-  } else if (withheld && seconds > 4.6) {
-    held = `<div class="note"><b>This refusal ran past the 4.0s deadline.</b> Padding holds a
-      refusal until the deadline but cannot pull it back, so a slow one leaks in that single
+  } else if (HOLD === 0) {
+    held = `<div class="note"><b>Timing is not defended on this server.</b> Refusals are not held
+      to a deadline, so this one took the time it really took, ${seconds.toFixed(2)}s, and that
+      depends on why it happened: a permission refusal skips the model, an unanswerable question
+      retries retrieval first. In our baseline measurement a stopwatch named the cause of most
+      refusals (<code>evals/refusal_timing.py</code>). Closing that costs every refusal several
+      seconds, so it is a switch, <code>REFUSAL_PADDING_ENABLED</code>, and it is off here.</div>`;
+  } else if (seconds >= HOLD - 0.1 && seconds <= HOLD + 0.6) {
+    held = `<div class="note"><b>Held to the ${HOLD.toFixed(1)}s deadline.</b> Every refusal takes
+      the same time whatever caused it, so timing this answer tells you nothing the sentence
+      doesn't. Without the hold, how long a refusal takes depends on why it happened — enough, in
+      our baseline measurement, for a stopwatch to name the cause of most of them.</div>`;
+  } else if (seconds > HOLD + 0.6) {
+    held = `<div class="note"><b>This refusal ran past the ${HOLD.toFixed(1)}s deadline.</b> The hold
+      keeps a refusal until the deadline but cannot pull it back, so a slow one leaks in that single
       direction. <code>evals/refusal_timing.py</code> measures how often: 0% on an idle
       machine. A cold model load or a loaded laptop is the usual cause.</div>`;
   }
@@ -325,7 +333,11 @@ async function run(uid, query) {
   return { reply: await response.json(), seconds };
 }
 
-const DEADLINE = 4.0;
+// Whether this server holds refusals to a fixed deadline (REFUSAL_PADDING_ENABLED), and for how
+// many seconds. Injected by the server (src/api/ui.py), so the page never claims a defence the
+// server is not running. Left unsubstituted it parses to NaN, which reads as "no hold": the safe
+// direction to be wrong in.
+const HOLD = parseFloat("__REFUSAL_HOLD_SECONDS__") || 0;
 const SCALE = 8.0;
 
 function scale(seconds, withheld) {
@@ -339,9 +351,10 @@ function scale(seconds, withheld) {
       </div>
       <div class="track">
         <div class="fill" style="width:${pct}%"></div>
-        <div class="deadline" style="left:${(DEADLINE / SCALE) * 100}%"></div>
+        ${HOLD > 0 ? `<div class="deadline" style="left:${(HOLD / SCALE) * 100}%"></div>` : ""}
       </div>
-      <div class="ticks"><span>0s</span><span class="mark">${DEADLINE.toFixed(1)}s deadline</span><span>${SCALE}s</span></div>
+      <div class="ticks"><span>0s</span>${
+        HOLD > 0 ? `<span class="mark">${HOLD.toFixed(1)}s deadline</span>` : ""}<span>${SCALE}s</span></div>
     </div>`;
 }
 
@@ -372,13 +385,18 @@ function finding(a, b) {
     // Say what the clock says. Claiming the deadline held while the number beside it
     // says otherwise discredits the one property the whole project rests on — the
     // same mistake this page already made once, in renderAnswer.
-    const timing = took <= DEADLINE + 0.6
-      ? `The refusal took <b>${took.toFixed(2)}s</b>, held to the ${DEADLINE.toFixed(1)}s
-         deadline, so its timing says no more than its wording does. Without that padding a
-         permission refusal returns in about 0.9s, and timing alone would tell caller
-         ${esc(held.uid)} that something exists here.`
+    const timing = HOLD === 0
+      ? `The refusal took <b>${took.toFixed(2)}s</b>. Nothing holds refusals to a deadline on this
+         server, so that is the real time, and timing is a side channel here: how long a refusal
+         takes depends on why it happened (<code>evals/refusal_timing.py</code> measures how well
+         a stopwatch exploits that). The hold that closes it is a switch,
+         <code>REFUSAL_PADDING_ENABLED</code>, and it is off.`
+      : took <= HOLD + 0.6
+      ? `The refusal took <b>${took.toFixed(2)}s</b>, held to the ${HOLD.toFixed(1)}s
+         deadline, so its timing says no more than its wording does. Without that hold, timing
+         alone could tell caller ${esc(held.uid)} something about why they were refused.`
       : `The refusal took <b>${took.toFixed(2)}s</b> and so ran <b>past</b> the
-         ${DEADLINE.toFixed(1)}s deadline — padding holds a refusal until the deadline but
+         ${HOLD.toFixed(1)}s deadline — the hold keeps a refusal until the deadline but
          cannot pull it back, and that overshoot is the residual leak
          <code>evals/refusal_timing.py</code> measures. It reports 0% on an idle machine; a
          cold model or a loaded laptop is the usual cause.`;
@@ -388,9 +406,13 @@ function finding(a, b) {
       reached the model. ${timing}</div>`;
   }
   if (refusedA && refusedB) {
-    return `<div class="finding"><span class="lead">Both refused, and indistinguishably so.</span>
-      Byte-identical text, and ${gap}s between them — both held to the ${DEADLINE.toFixed(1)}s
-      deadline. Neither caller can tell whether an answer exists, or whether the other one got it.</div>`;
+    return HOLD === 0
+      ? `<div class="finding"><span class="lead">Both refused, with identical words.</span>
+         Byte-identical text, and ${gap}s between them. With no hold on this server that gap is
+         real, and it is a side channel: how long a refusal takes depends on why it happened.</div>`
+      : `<div class="finding"><span class="lead">Both refused, and indistinguishably so.</span>
+         Byte-identical text, and ${gap}s between them — both held to the ${HOLD.toFixed(1)}s
+         deadline. Neither caller can tell whether an answer exists, or whether the other one got it.</div>`;
   }
   return `<div class="finding"><span class="lead">Both answered.</span>
     Nothing here is restricted to either caller, so the permission filter changed nothing —
