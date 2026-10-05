@@ -119,12 +119,21 @@ incomplete review.
 - **Never widen this to cover probing or injection.** A hostile question about company material routes
   `rag` and meets the §1 predicate and the Verifier like any other, ending in `GENERIC_REFUSAL`; moving
   that judgement into a prompt would make access control a prompt instruction, which §1 forbids.
-  Measured in `evals/adversarial_probe.py`: hostile 6/6 refused, off-piste 5/5 declined, 0 content
-  leaks, 0 existence disclosures.
+  Measured in `evals/adversarial_probe.py`: hostile 7/7 refused, off-piste 7/7 declined, controls 3/3
+  answered, 0 content leaks, 0 existence disclosures.
 - Two distinguishable asker-facing replies is safe here and only here, because the Router picks
   `decline` from the query TEXT alone — before retrieval, before any permission check — so it carries
   nothing about the corpus or the caller's access. `_answer_node` checks it BELOW the escalation
   branch, which is what makes that true rather than merely likely.
+- **Questions about the assistant itself are the one thing decided without a model** (`is_about_the_assistant`,
+  `ABOUT_THE_ASSISTANT`): a fixed set of identity and capability phrasings ("what can you do", "who are you",
+  "help"), matched against the WHOLE message after normalisation and an optional greeting prefix. Measured:
+  qwen2.5:7b answered YES to `is_off_piste` for "What can you do?" and "Who are you?", both NO examples in its own
+  prompt, so the likeliest first questions of a demo reached Clarification and were asked "which document?".
+  It is safe for the reason `decline` is safe: it reads the query text alone, before retrieval and before any
+  permission check. It cannot swallow a company question because only a whole-message match counts, and a test
+  asserts it matches nothing in `evals/cases.py`. **Don't grow it into a classifier.** A paraphrase outside it falls
+  back to the old behaviour, which is mildly unhelpful and never unsafe.
 - The distilled student needs no retraining: it cannot emit `decline`, and never has to. It routes
   off-piste text to `clarify` or below the confidence gate, and the teacher's `clarify` verdict is the
   only door to `is_off_piste`. Student confidence is NOT usable as that door — measured, the two
