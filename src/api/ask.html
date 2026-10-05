@@ -9,6 +9,8 @@
 </head>
 <body>
 
+<a class="skip" href="#main">Skip to content</a>
+
 <header class="bar">
   <span class="brand"><span class="dot"></span>Internal Brain <small>Aurelia</small></span>
   <nav>
@@ -21,7 +23,7 @@
   <button class="icon-button" id="theme" type="button" aria-label="Switch theme" title="Switch theme">◐</button>
 </header>
 
-<main class="page">
+<main class="page" id="main" tabindex="-1">
   <h1>Ask</h1>
   <p class="lede">Confluence, Jira, Slack and Drive, in one question. You only ever see
     what your own permissions allow — the filter runs in the database, before any of it
@@ -32,12 +34,12 @@
 
   <div class="composer">
     <form class="panel" id="form">
-      <textarea id="q" name="q" rows="2" spellcheck="false"
+      <textarea id="q" name="q" rows="2" spellcheck="false" aria-label="Your question"
         placeholder="Ask anything — try &quot;What triggers an AML escalation review?&quot;"></textarea>
       <div class="controls">
-        <div class="mode" role="tablist" aria-label="Who asks">
-          <button id="mode-one" type="button" role="tab" aria-selected="true">One caller</button>
-          <button id="mode-two" type="button" role="tab" aria-selected="false">Side by side</button>
+        <div class="mode" role="group" aria-label="Who asks">
+          <button id="mode-one" type="button" aria-pressed="true">One caller</button>
+          <button id="mode-two" type="button" aria-pressed="false">Side by side</button>
         </div>
         <span class="asking" id="asking"></span>
         <button id="go" type="submit">Ask</button>
@@ -238,6 +240,8 @@ function syncedNote(iso) {
     old ? "may be out of date · " : ""}synced ${age}</span>`;
 }
 
+let evidenceSeq = 0;  // unique per rendered citation, so aria-controls can point at its own box
+
 function renderAnswer(reply, seconds, { bare = false } = {}) {
   // `bare` is the side-by-side column: the scale above it already carries the
   // timing, and the explanation is stated once under both columns instead of twice.
@@ -249,18 +253,19 @@ function renderAnswer(reply, seconds, { bare = false } = {}) {
       <span class="section">Sources</span>
       ${reply.citations.map((c) => {
         const evidence = c.passage || c.query;
+        const eid = `evidence-${++evidenceSeq}`;
         return `
         <div class="source">
           <span class="ref"><span class="plat">${esc(c.source_platform)}:</span>${esc(c.source_ref)}</span>
           <span class="title">${esc(c.title)}</span>
           ${c.as_of ? syncedNote(c.as_of) : ""}
           <span class="actions">
-            ${evidence ? `<button class="copy" type="button" data-peek>Show ${
+            ${evidence ? `<button class="copy" type="button" data-peek aria-expanded="false" aria-controls="${eid}">Show ${
               c.query ? "query" : "passage"}</button>` : ""}
             <button class="copy" type="button" data-ref="${esc(c.source_platform)}:${esc(c.source_ref)}">Copy</button>
           </span>
         </div>
-        ${evidence ? `<div class="evidence" hidden>${
+        ${evidence ? `<div class="evidence" id="${eid}" hidden>${
           c.query
             ? `<pre>${highlightAcl(c.query)}</pre>
                <p class="why">The highlighted predicate is the access control. It runs
@@ -499,7 +504,7 @@ function turn(html, { mine = false } = {}) {
 async function ask() {
   const query = $("q").value.trim();
   if (!query) { $("q").focus(); return; }
-  const comparing = $("mode-two").getAttribute("aria-selected") === "true";
+  const comparing = $("mode-two").getAttribute("aria-pressed") === "true";
 
   $("go").disabled = true;
   $("q").value = "";
@@ -537,7 +542,7 @@ async function ask() {
 
 function describeIdentities() {
   const held = IB.signedIn();
-  const comparing = $("mode-two").getAttribute("aria-selected") === "true";
+  const comparing = $("mode-two").getAttribute("aria-pressed") === "true";
   $("go").textContent = comparing ? "Ask both" : "Ask";
   $("go").disabled = comparing && held.length < 2;
   $("asking").innerHTML = comparing
@@ -550,8 +555,8 @@ function describeIdentities() {
 
 for (const [id, on] of [["mode-one", false], ["mode-two", true]]) {
   $(id).addEventListener("click", () => {
-    $("mode-one").setAttribute("aria-selected", String(!on));
-    $("mode-two").setAttribute("aria-selected", String(on));
+    $("mode-one").setAttribute("aria-pressed", String(!on));
+    $("mode-two").setAttribute("aria-pressed", String(on));
     describeIdentities();
   });
 }
@@ -569,9 +574,6 @@ $("form").addEventListener("submit", (e) => { e.preventDefault(); ask(); });
 $("q").addEventListener("keydown", (e) => {
   if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); ask(); }
 });
-document.addEventListener("keydown", (e) => {
-  if (e.key === "/" && document.activeElement !== $("q")) { e.preventDefault(); $("q").focus(); }
-});
 $("thread").addEventListener("click", async (e) => {
   const peek = e.target.closest("[data-peek]");
   if (peek) {
@@ -579,6 +581,7 @@ $("thread").addEventListener("click", async (e) => {
     // thread renders citation 0, so an id would open the first turn's passage forever.
     const box = peek.closest(".source").nextElementSibling;
     box.hidden = !box.hidden;
+    peek.setAttribute("aria-expanded", String(!box.hidden));
     peek.textContent = box.hidden
       ? peek.textContent.replace("Hide", "Show")
       : peek.textContent.replace("Show", "Hide");

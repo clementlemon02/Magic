@@ -9,6 +9,8 @@
 </head>
 <body>
 
+<a class="skip" href="#main">Skip to content</a>
+
 <header class="bar">
   <span class="brand"><span class="dot"></span>Internal Brain <small>Aurelia</small></span>
   <nav>
@@ -21,7 +23,7 @@
   <button class="icon-button" id="theme" type="button" aria-label="Switch theme" title="Switch theme">◐</button>
 </header>
 
-<main class="page wide">
+<main class="page wide" id="main" tabindex="-1">
   <h1>Audit trail</h1>
   <p class="lede">Every request, hash-chained. Opening one reads its explanation back — the only
     path that can, and itself recorded.</p>
@@ -44,11 +46,11 @@
       </div>
       <button id="go" type="button">Refresh</button>
       <button class="ghost" id="verify" type="button">Verify chain</button>
-      <div class="mode" role="tablist" aria-label="Show which requests">
-        <button id="f-all" type="button" role="tab" aria-selected="true" data-outcome="all">All</button>
-        <button id="f-refused" type="button" role="tab" aria-selected="false" data-outcome="refused">Refused</button>
-        <button id="f-answered" type="button" role="tab" aria-selected="false" data-outcome="answered">Answered</button>
-        <button id="f-declined" type="button" role="tab" aria-selected="false" data-outcome="declined">Out of scope</button>
+      <div class="mode" role="group" aria-label="Show which requests">
+        <button id="f-all" type="button" aria-pressed="true" data-outcome="all">All</button>
+        <button id="f-refused" type="button" aria-pressed="false" data-outcome="refused">Refused</button>
+        <button id="f-answered" type="button" aria-pressed="false" data-outcome="answered">Answered</button>
+        <button id="f-declined" type="button" aria-pressed="false" data-outcome="declined">Out of scope</button>
       </div>
       <input id="search" type="search" placeholder="Search the question…" style="width:210px"
         aria-label="Search the question" autocomplete="off" spellcheck="false">
@@ -59,7 +61,10 @@
     </div>
   </div>
 
-  <div id="chain"></div>
+  <div id="chain" role="status"></div>
+  <!-- What changed, read aloud: the list and the trail are redrawn, which a screen reader
+       would otherwise never mention. -->
+  <div class="sr" id="announce" role="status"></div>
 
   <div class="split">
     <div class="worklist" id="list"></div>
@@ -171,7 +176,7 @@ function renderDetail(report) {
    "12 refusals" when the window held 12 of 122 — the same lie as the count that
    used to read "100 requests". So every change refetches. */
 function outcome() {
-  const on = document.querySelector('.mode [aria-selected="true"]');
+  const on = document.querySelector('.mode [aria-pressed="true"]');
   return on ? on.dataset.outcome : "all";
 }
 
@@ -204,11 +209,14 @@ async function loadList() {
   $("list").innerHTML = renderList();
   $("detail").innerHTML = requests.length
     ? `<div class="note">Pick a request to read its trail.</div>` : "";
+  $("announce").textContent = `${$("count-n").textContent} ${$("count-unit").textContent}`;
 }
 
 async function loadDetail(id) {
   current = id;
   $("list").innerHTML = renderList();
+  // The row was just redrawn, so the button the keyboard was on no longer exists.
+  $("list").querySelector('[aria-current="true"]')?.focus();
   $("detail").innerHTML = `<div class="note">Loading…</div>`;
   const response = await IB.api(`/audit/${encodeURIComponent(id)}`, {})
     .catch(() => null);
@@ -219,6 +227,8 @@ async function loadDetail(id) {
     return;
   }
   $("detail").innerHTML = renderDetail(await response.json());
+  const picked = requests.find((r) => r.request_id === id);
+  $("announce").textContent = `Trail opened${picked ? `: ${picked.query}` : ""}`;
 }
 
 async function verifyChain() {
@@ -253,7 +263,7 @@ document.querySelector(".mode").addEventListener("click", (e) => {
   const tab = e.target.closest("[data-outcome]");
   if (!tab) return;
   for (const other of document.querySelectorAll(".mode [data-outcome]")) {
-    other.setAttribute("aria-selected", String(other === tab));
+    other.setAttribute("aria-pressed", String(other === tab));
   }
   loadList();
 });

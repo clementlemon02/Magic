@@ -141,7 +141,7 @@ const IB = (() => {
           </div>
         </form>
       </details>
-      <p id="ib-error" class="signin-error"></p>
+      <p id="ib-error" class="signin-error" role="alert"></p>
 
       <div class="guide">
         <span class="section">What the four pages are</span>
@@ -233,6 +233,8 @@ const IB = (() => {
       for (const link of document.querySelectorAll("nav a[data-officer]")) {
         link.classList.add("locked");
         link.title = "Compliance officers only — switch to that identity in the header";
+        // A tooltip is not read to a keyboard or a screen reader, and the lock is only a picture.
+        link.insertAdjacentHTML("beforeend", '<span class="sr"> — compliance officers only</span>');
       }
     }
     chip.addEventListener("click", (e) => {

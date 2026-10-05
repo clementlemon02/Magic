@@ -9,6 +9,8 @@
 </head>
 <body>
 
+<a class="skip" href="#main">Skip to content</a>
+
 <header class="bar">
   <span class="brand"><span class="dot"></span>Internal Brain <small>Aurelia</small></span>
   <nav>
@@ -21,7 +23,7 @@
   <button class="icon-button" id="theme" type="button" aria-label="Switch theme" title="Switch theme">◐</button>
 </header>
 
-<main class="page wide">
+<main class="page wide" id="main" tabindex="-1">
   <h1>Sources and grants</h1>
   <p class="lede">One workspace authorization per source, run by IT. Nobody else connects
     anything — the same connection reads the content and the permission model that decides
@@ -38,9 +40,16 @@
   </div>
 
   <div class="split">
-    <div class="detail" id="sources"></div>
-    <p id="grant-error" class="signin-error"></p>
-    <div class="worklist" id="grants" style="width:420px"></div>
+    <div class="detail">
+      <div class="panel" style="margin-bottom:12px;display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+        <button id="sync" type="button">Sync now</button>
+        <span id="sync-note" role="status" style="font-size:12.5px;color:var(--muted)">Re-reads every
+          source and brings the mirror in line: edits, deletions and permission changes.</span>
+      </div>
+      <div id="sources"></div>
+    </div>
+    <p id="grant-error" class="signin-error" role="alert"></p>
+    <div class="worklist" id="grants" style="width:min(420px, 100%)"></div>
   </div>
 </main>
 
@@ -65,9 +74,6 @@ const ago = (iso) => {
   return hours < 48 ? `${hours}h ago` : `${Math.round(hours / 24)} days ago`;
 };
 
-// What the last "Sync now" did, kept here because loadSources() redraws the whole column.
-let syncNote = "";
-
 const summarize = (r) => {
   if (r.error) return `${r.platform}: failed`;
   if (r.skipped) return `${r.platform}: already running`;
@@ -89,12 +95,7 @@ async function loadSources() {
   // Stale is a judgement about freshness, so it is drawn, not just stated: the
   // permissions table is a mirror of each source's ACLs and only as fresh as its last
   // sync. The server decides (twice the sync interval), because only it knows the interval.
-  $("sources").innerHTML = `
-    <div class="panel" style="margin-bottom:12px;display:flex;align-items:center;gap:14px;flex-wrap:wrap">
-      <button id="sync" type="button">Sync now</button>
-      <span id="sync-note" role="status" style="font-size:12.5px;color:var(--muted)">${esc(syncNote) ||
-        "Re-reads every source and brings the mirror in line: edits, deletions and permission changes."}</span>
-    </div>` + sources.map((s) => `
+  $("sources").innerHTML = sources.map((s) => `
     <div class="panel" style="margin-bottom:12px">
       <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
         <span style="display:grid;place-items:center;width:34px;height:34px;border-radius:8px;
@@ -125,20 +126,24 @@ async function loadSources() {
       deletions and permission changes.</div>`;
 }
 
-$("sources").addEventListener("click", async (e) => {
-  const button = e.target.closest("#sync");
-  if (!button) return;
-  button.disabled = true;
+$("sync").addEventListener("click", async () => {
+  const button = $("sync");
+  // aria-disabled, not disabled: a disabled button drops keyboard focus, and the officer who
+  // pressed it with Enter would find the next Tab starting from the top of the page.
+  if (button.getAttribute("aria-disabled") === "true") return;
+  button.setAttribute("aria-disabled", "true");
   button.textContent = "Syncing…";
   const response = await IB.api("/admin/sync", { method: "POST", headers: {} }).catch(() => null);
   if (!response || !response.ok) {
     // Say so, and say nothing changed: a sync that failed silently would leave an officer
     // believing the mirror had caught up with an edit it had not.
     const detail = response ? (await response.json().catch(() => ({}))).detail : "";
-    syncNote = `The sync did not run${detail ? `: ${detail}` : " — the server did not respond."}`;
+    $("sync-note").textContent = `The sync did not run${detail ? `: ${detail}` : " — the server did not respond."}`;
   } else {
-    syncNote = (await response.json()).map(summarize).join(" · ");
+    $("sync-note").textContent = (await response.json()).map(summarize).join(" · ");
   }
+  button.removeAttribute("aria-disabled");
+  button.textContent = "Sync now";
   // Re-read rather than patch: the tables are the truth, and grants may have moved too.
   await loadSources();
   loadGrants();
@@ -176,7 +181,9 @@ async function loadGrants() {
           ${live ? "" : '<span class="tag">revoked</span>'}
           <button class="copy" type="button" style="color:var(--${live ? "withheld" : "clear"})"
             data-platform="${esc(g.source_platform)}" data-ref="${esc(g.source_ref)}"
-            data-action="${live ? "revoke" : "grant"}">${live ? "Revoke" : "Grant"}</button>
+            data-action="${live ? "revoke" : "grant"}"
+            aria-label="${live ? "Revoke" : "Grant"} ${esc(g.source_platform)}:${esc(g.source_ref)}">${
+            live ? "Revoke" : "Grant"}</button>
         </div>`;
       }).join("")}
     </div>`;
@@ -188,9 +195,14 @@ async function loadGrants() {
 // return from it immediately without ever showing a dialog, so the guard would be
 // no guard at all in exactly the places it is hardest to notice.
 let armed = null;
+const nameOf = (button, confirming) =>
+  `${button.dataset.action === "revoke" ? "Revoke" : "Grant"}${confirming ? " — confirm" : ""}`;
+const labelOf = (button, confirming) =>
+  `${confirming ? "Confirm: " : ""}${nameOf(button, false)} ${button.dataset.platform}:${button.dataset.ref}`;
 function disarm() {
   if (!armed) return;
-  armed.textContent = armed.dataset.action === "revoke" ? "Revoke" : "Grant";
+  armed.textContent = nameOf(armed, false);
+  armed.setAttribute("aria-label", labelOf(armed, false));
   armed.classList.remove("armed");
   armed = null;
 }
@@ -205,7 +217,8 @@ $("grants").addEventListener("click", async (e) => {
   if (armed !== button) {
     disarm();
     armed = button;
-    button.textContent = revoking ? "Revoke — confirm" : "Grant — confirm";
+    button.textContent = nameOf(button, true);
+    button.setAttribute("aria-label", labelOf(button, true));
     button.classList.add("armed");
     return;
   }
@@ -227,7 +240,8 @@ $("grants").addEventListener("click", async (e) => {
     // way to tell a failed revoke from a completed one — the single worst state for
     // a screen whose subject is who can read what.
     button.disabled = false;
-    button.textContent = revoking ? "Revoke" : "Grant";
+    button.textContent = nameOf(button, false);
+    button.setAttribute("aria-label", labelOf(button, false));
     const detail = response ? (await response.json().catch(() => ({}))).detail : "";
     $("grant-error").textContent =
       `That ${revoking ? "revoke" : "grant"} did not go through${
@@ -237,7 +251,12 @@ $("grants").addEventListener("click", async (e) => {
   $("grant-error").textContent = "";
   // Re-read rather than patch the row: the table is the truth, and the whole point
   // of this screen is that the next question reads the same table.
-  loadGrants();
+  await loadGrants();
+  // The row was redrawn, so the button the keyboard was on is gone. The same grant is still
+  // there, now offering the opposite action: put focus on it.
+  [...$("grants").querySelectorAll("button[data-action]")]
+    .find((b) => b.dataset.platform === button.dataset.platform && b.dataset.ref === button.dataset.ref)
+    ?.focus();
   loadSources();
 });
 

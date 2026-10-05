@@ -383,7 +383,8 @@ def test_changing_who_may_read_something_takes_two_clicks_and_reports_failure():
     just reset — leaving an officer unable to tell a failed revoke from a done one,
     which is the worst possible ambiguity on this particular screen."""
     page = PAGES["sources"].read_text(encoding="utf-8")
-    assert 'Revoke — confirm' in page and 'Grant — confirm' in page
+    # Built from the action name, so the label can carry WHICH grant (see test_a11y.py).
+    assert '" — confirm"' in page and "nameOf(button, true)" in page
     assert "did not go through" in page
     # Not window.confirm(): embedded views return from it at once without showing a
     # dialog, so the guard would be absent exactly where it is hardest to notice.
