@@ -156,6 +156,13 @@ def events_for(state: GraphState) -> list[AuditEvent]:
             # Identity, not content: the log must not become a second copy of the corpus.
             "chunk_ids": [c.id for c in chunks],
             "document_ids": sorted({c.document_id for c in chunks}),
+            # By name as well as by id. A document id means a row in the corpus AS IT WAS:
+            # reseeding restarts the sequence, and a sync that removes and re-adds a document
+            # gives it a new one, so an old id can point at a different document. The name is
+            # what lets an officer ask "who was shown anything from this space" a month later.
+            "sources": list(dict.fromkeys(
+                f"{c.citation.source_platform}:{c.citation.source_ref}" for c in chunks
+            )),
             "scores": [round(c.score, 4) for c in chunks],
         }))
     if state.get("sql_result") is not None:
@@ -199,19 +206,51 @@ def read_request(request_id: str, connect: Callable = _connect) -> list[AuditEve
     return [AuditEvent(event_type=t, payload=p, occurred_at=c) for t, p, c in rows]
 
 
-RECENT_REQUESTS = """
+# Every document an audited request NAMES, by "platform:ref", with the request it belongs to.
+# Four ways a request names one, and an officer asking "what did this person get near" wants
+# all four: what the answer was built from (citations), what was retrieved for it (new rows
+# only; older ones carry ids, which are not stable names), what was refused because it
+# outranked the permitted evidence (permission_conflict) and what the source itself denied
+# at question time (source_recheck_denied). Matching on EXTRACTED refs, never on the payload
+# text: an answer that merely mentions a document must not count as having touched it.
+NAMED_DOCUMENTS = """
+    SELECT e.request_id, (item->>'source_platform') || ':' || (item->>'source_ref') AS ref
+    FROM audit_log AS e
+    CROSS JOIN LATERAL jsonb_array_elements(e.payload->'citations') AS item
+    WHERE e.event_type = 'final_answer' AND e.created_at >= %(since)s
+    UNION ALL
+    SELECT e.request_id, (item->>'source_platform') || ':' || (item->>'source_ref')
+    FROM audit_log AS e
+    CROSS JOIN LATERAL jsonb_array_elements(e.payload->'conflicts') AS item
+    WHERE e.event_type = 'permission_conflict' AND e.created_at >= %(since)s
+    UNION ALL
+    SELECT e.request_id, (item->>'source_platform') || ':' || (item->>'source_ref')
+    FROM audit_log AS e
+    CROSS JOIN LATERAL jsonb_array_elements(e.payload->'items') AS item
+    WHERE e.event_type = 'source_recheck_denied' AND e.created_at >= %(since)s
+    UNION ALL
+    SELECT e.request_id, source
+    FROM audit_log AS e
+    CROSS JOIN LATERAL jsonb_array_elements_text(e.payload->'sources') AS source
+    WHERE e.event_type = 'retrieval' AND e.created_at >= %(since)s
+"""
+
+RECENT_REQUESTS = f"""
+    WITH named AS ({NAMED_DOCUMENTS})
     SELECT question.request_id,
            question.created_at,
            question.user_id,
            question.payload->>'query' AS query,
            question.payload->>'route' AS route,
            coalesce((final.payload->>'escalated')::boolean, false) AS escalated,
-           escalation.payload->>'reason' AS reason
+           escalation.payload->>'reason' AS reason,
+           asker.name AS user_name
     FROM audit_log AS question
     LEFT JOIN audit_log AS final
       ON final.request_id = question.request_id AND final.event_type = 'final_answer'
     LEFT JOIN audit_log AS escalation
       ON escalation.request_id = question.request_id AND escalation.event_type = 'escalation'
+    LEFT JOIN users AS asker ON asker.id = question.user_id
     WHERE question.event_type = 'query_received' AND question.created_at >= %(since)s
       -- Filters applied HERE, not in the page. 306 requests over 7 days against a
       -- 100-row window: a page that narrowed what it had already fetched would show
@@ -223,6 +262,15 @@ RECENT_REQUESTS = """
                AND question.payload->>'route' IS DISTINCT FROM 'decline')
            OR (%(outcome)s = 'declined' AND question.payload->>'route' = 'decline'))
       AND (%(q)s = '' OR question.payload->>'query' ILIKE %(like)s)
+      -- Whose requests: an id, or a fragment of a name or an email. All digits is an id and
+      -- nothing else, or "2" would also find anyone with a 2 in their address.
+      AND (%(user)s = ''
+           OR asker.id = %(user_id)s::int
+           OR (%(user_id)s::int IS NULL
+               AND (asker.name ILIKE %(user_like)s OR asker.email ILIKE %(user_like)s)))
+      -- Which documents: anything the request named, by "platform:ref" fragment.
+      AND (%(document)s = ''
+           OR question.request_id IN (SELECT request_id FROM named WHERE ref ILIKE %(document_like)s))
     ORDER BY question.created_at DESC
     LIMIT %(limit)s
 """
@@ -233,12 +281,24 @@ RECENT_REQUESTS = """
 OUTCOMES = ("all", "refused", "answered", "declined")
 
 
+def _like(text: str) -> str:
+    """A LIKE pattern for "contains `text`", with the caller's own % and _ taken literally.
+
+    Bound by the driver like everything else; the surrounding wildcards are ours. Unescaped,
+    searching "50%" would match every row, which on this page reads as "your filter found
+    everything" rather than "your filter did nothing".
+    """
+    return "%" + text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+
+
 def recent_requests(
     since: datetime,
     *,
     limit: int = 100,
     outcome: str = "all",
     q: str = "",
+    user: str = "",
+    document: str = "",
     connect: Callable = _connect,
 ) -> list[dict[str, Any]]:
     """Requests in the window, newest first, with how each ended.
@@ -248,34 +308,36 @@ def recent_requests(
     The question text comes along because an officer working through refusals needs
     to see what was asked, not a column of UUIDs.
 
-    `outcome` and `q` narrow in SQL, before the limit, so a filtered list is every
-    match in the window rather than the matches that happened to fall inside the
-    newest hundred. An unknown outcome falls back to 'all' — a typo must not silently
-    hide rows from an audit surface.
+    The brief's inquiry is "everything user jdoe accessed related to the payment-gateway
+    space in the last 30 days", which is these filters together: `user` (an id, or part of a
+    name or email), `document` (part of "platform:ref", so `confluence:SUPPORT/` is a whole
+    space) and the window. They narrow in SQL, before the limit, so a filtered list is every
+    match in the window rather than the matches that happened to fall inside the newest
+    hundred. An unknown outcome falls back to 'all' — a typo must not silently hide rows
+    from an audit surface.
     """
     if outcome not in OUTCOMES:
         outcome = "all"
-    text = (q or "").strip()
+    text, who, doc = (q or "").strip(), (user or "").strip(), (document or "").strip()
     with connect() as conn:
         rows = conn.execute(RECENT_REQUESTS, {
             "since": since, "limit": limit, "outcome": outcome,
-            "q": text,
-            # Bound by the driver like everything else; the wildcards are ours, and
-            # the caller's own % and _ are escaped so a search for "50%" is a search
-            # for "50%" rather than for everything.
-            "like": "%" + text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%",
+            "q": text, "like": _like(text),
+            "user": who, "user_id": int(who) if who.isdigit() else None, "user_like": _like(who),
+            "document": doc, "document_like": _like(doc),
         }).fetchall()
     return [
         {
             "request_id": str(request_id),
             "at": at,
             "user_id": user_id,
+            "user_name": user_name,
             "query": query or "",
             "route": route,
             "escalated": bool(escalated),
             "reason": reason,
         }
-        for request_id, at, user_id, query, route, escalated, reason in rows
+        for request_id, at, user_id, query, route, escalated, reason, user_name in rows
     ]
 
 

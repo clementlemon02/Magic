@@ -205,10 +205,20 @@ incomplete review.
   so every hop of a multi-hop request is on the record with its own timestamp and duration. A summary
   of the finished request follows those rows. `request_id`-keyed. `GET /audit/{request_id}` is the only
   path that can read `explanation` back out; `GET /audit/recent` lists requests for an officer to work
-  through, and both are role-gated. It takes `outcome` (all | refused | answered | declined) and
-  `q`, and both narrow **in SQL, above the LIMIT** — filtering an already-fetched window would
-  report "12 refusals" when the window held 12 of 122. An unknown `outcome` falls back to `all`:
-  a typo must never silently hide rows from an audit surface.
+  through, and both are role-gated. It takes `outcome` (all | refused | answered | declined), `q`,
+  `user` and `document`, and all four narrow **in SQL, above the LIMIT** — filtering an already-fetched
+  window would report "12 refusals" when the window held 12 of 122. An unknown `outcome` falls back to
+  `all`: a typo must never silently hide rows from an audit surface.
+- **The brief's inquiry** ("everything user jdoe accessed related to the payment-gateway space in the last
+  30 days") is `days` + `user` + `document` together. `user` is an id, or a fragment of a name or email (all
+  digits is an id and nothing else). `document` is a fragment of `platform:ref`, so `confluence:SUPPORT/`
+  is a whole space. A request NAMES a document four ways: a citation on its answer, a `retrieval` event,
+  a `permission_conflict`, a `source_recheck_denied`. Matching is on those extracted refs, **never on payload
+  text**, so an answer that merely mentions a document has not touched it. Compose with `outcome` for
+  "what was turned away at that space".
+- The `retrieval` event records `sources` (`platform:ref`) as well as `document_ids`. An id only means a row in
+  the corpus as it was, since reseeding restarts the sequence; the name is what an officer can still ask about
+  later. Rows written before this carry ids only, and are found through their citations and conflicts.
 
 ### SQL Tool — `src/agents/sql_tool.py`
 - In: `query`, `user`. Out: `sql_result`.

@@ -130,6 +130,26 @@ def test_the_trail_records_identity_but_never_chunk_content():
     assert "SECRET BODY TEXT" not in str([e.payload for e in trail])
 
 
+def test_the_retrieval_event_names_its_documents_not_just_their_ids():
+    """A document id means a row in the corpus as it was: reseeding restarts the sequence and
+    a sync can remove and re-add a document under a new one. Names are what an officer can
+    still ask about a month later. In chunk order, one entry per document, never content."""
+    def chunk(id_, doc, ref, platform="confluence"):
+        return Chunk(
+            id=id_, document_id=doc, content="BODY", acl_tags=["support"], score=0.8,
+            citation=Citation(document_id=doc, title="t", source_platform=platform, source_ref=ref),
+        )
+
+    trail = events_for(_state(retrieved_chunks=[
+        chunk(1, 5, "SUPPORT/refund-policy"), chunk(2, 5, "SUPPORT/refund-policy"),
+        chunk(3, 9, "file-pii-standard", platform="drive"),
+    ]))
+    retrieval = next(e for e in trail if e.event_type == "retrieval").payload
+    assert retrieval["sources"] == ["confluence:SUPPORT/refund-policy", "drive:file-pii-standard"]
+    assert retrieval["document_ids"] == [5, 9]
+    assert "BODY" not in str(retrieval)
+
+
 def test_escalation_reason_and_explanation_are_carried_into_the_trail():
     escalated = _state(permission_conflicts=[CONFLICT])
     escalated.update(escalation_node(escalated))
@@ -270,10 +290,10 @@ def test_the_worklist_narrows_in_sql_not_in_the_page():
     the predicate has to sit above the LIMIT."""
     from src.agents.audit import RECENT_REQUESTS
 
-    where = RECENT_REQUESTS.index("WHERE")
+    where = RECENT_REQUESTS.index("WHERE question.event_type")
     limit = RECENT_REQUESTS.index("LIMIT")
-    assert "%(outcome)s" in RECENT_REQUESTS[where:limit]
-    assert "%(like)s" in RECENT_REQUESTS[where:limit]
+    for bound in ("outcome", "like", "user", "user_id", "user_like", "document", "document_like"):
+        assert f"%({bound})s" in RECENT_REQUESTS[where:limit], f"{bound} is applied after the LIMIT"
 
     assert _ran(outcome="refused")["params"]["outcome"] == "refused"
 
@@ -293,3 +313,57 @@ def test_a_search_for_a_wildcard_is_a_search_for_that_wildcard():
     assert _ran(q="a_b")["params"]["like"] == r"%a\_b%"
     assert _ran(q="  spaced  ")["params"]["q"] == "spaced"
     assert _ran(q="")["params"]["q"] == ""
+
+
+def test_a_user_is_found_by_id_or_by_part_of_a_name_or_email():
+    """All digits is an id and nothing else: "2" must not also find everyone with a 2 in
+    their address. Anything else is a fragment of a name or an email."""
+    assert _ran(user="2")["params"]["user_id"] == 2
+    assert _ran(user=" 17 ")["params"]["user_id"] == 17
+    for text in ("marcus", "alex.tan@", "2fa"):
+        assert _ran(user=text)["params"]["user_id"] is None
+    assert _ran(user="marcus")["params"]["user_like"] == "%marcus%"
+    assert _ran(user="")["params"]["user"] == ""
+
+
+def test_a_document_filter_takes_its_wildcards_literally():
+    assert _ran(document="confluence:SUPPORT/")["params"]["document_like"] == "%confluence:SUPPORT/%"
+    assert _ran(document="50%")["params"]["document_like"] == r"%50\%%"
+    assert _ran(document="a_b")["params"]["document_like"] == r"%a\_b%"
+    assert _ran(document="  space  ")["params"]["document"] == "space"
+
+
+def test_the_document_filter_matches_extracted_refs_never_payload_text():
+    """An answer that merely MENTIONS a document has not touched it. The names come from
+    four structured places, so free text in an answer can never make a request match."""
+    from src.agents.audit import NAMED_DOCUMENTS
+
+    for source in ("'citations'", "'conflicts'", "'items'", "'sources'"):
+        assert f"payload->{source}" in NAMED_DOCUMENTS
+    assert "payload::text" not in NAMED_DOCUMENTS and "->>'text'" not in NAMED_DOCUMENTS
+
+
+def test_the_filters_reach_the_query_from_the_route():
+    """GET /audit/recent?user=...&document=... — the officer's inquiry end to end, minus the
+    database. `user` is a query parameter here even though the officer dependency is also
+    called user on the Python side."""
+    seen: dict = {}
+
+    def connect():
+        return _FakeConn(seen)
+
+    from src.api.compliance import build_router
+    from src.api.auth import build_dependencies
+    from fastapi import FastAPI
+
+    _, officer = build_dependencies(lambda uid: MARCUS)
+    app = FastAPI()
+    app.include_router(build_router(lambda uid: MARCUS, connect=connect, officer=officer))
+    r = TestClient(app).get(
+        "/audit/recent?days=30&user=jdoe&document=confluence:PAY/&outcome=refused",
+        headers=as_user(2),
+    )
+    assert r.status_code == 200
+    params = seen["params"]
+    assert (params["user"], params["document"], params["outcome"]) == ("jdoe", "confluence:PAY/", "refused")
+    assert params["document_like"] == "%confluence:PAY/%"
