@@ -290,6 +290,9 @@ def create_app(
         refusal_deadline = (
             settings.refusal_deadline_seconds if settings.refusal_padding_enabled else 0.0
         )
+    # The Ask page states what refusals do with timing, and that is only true of the deadline
+    # this app actually enforces, so the UI router reads it from here (src/api/ui.py).
+    app.state.refusal_hold = refusal_deadline
 
     async def hold_refusal(started: float) -> None:
         """Keep a refusal until the deadline, so its timing can't say why it happened.

@@ -146,8 +146,8 @@ def test_the_deadline_claim_is_bounded_by_the_measured_time():
     """A refusal that ran long escaped the deadline. Claiming it was held, next to a
     number that says otherwise, discredits the guarantee the product is built on."""
     page = PAGES["ask"].read_text(encoding="utf-8")
-    assert "seconds >= 3.9 && seconds <= 4.6" in page
-    assert "ran past the 4.0s deadline" in page
+    assert "seconds >= HOLD - 0.1 && seconds <= HOLD + 0.6" in page
+    assert "ran past the ${HOLD.toFixed(1)}s deadline" in page
 
 
 def test_the_audit_page_is_served_and_carries_no_trail_of_its_own():
@@ -273,8 +273,9 @@ def test_the_comparison_draws_the_deadline_to_scale():
     """A refusal landing on the deadline and an answer running past it is the whole
     property, read without a number. It has to be plotted, not asserted."""
     page = PAGES["ask"].read_text(encoding="utf-8")
-    assert "const DEADLINE = 4.0;" in page and "const SCALE = 8.0;" in page
-    assert "(DEADLINE / SCALE) * 100" in page, "the marker must sit at its true position"
+    assert 'const HOLD = parseFloat("__REFUSAL_HOLD_SECONDS__") || 0;' in page
+    assert "const SCALE = 8.0;" in page
+    assert "(HOLD / SCALE) * 100" in page, "the marker must sit at its true position"
 
 
 def test_the_shared_script_is_not_deferred():
@@ -292,7 +293,7 @@ def test_the_comparison_never_claims_a_deadline_the_clock_contradicts():
     otherwise, discredits the property the project rests on — and this page made that
     mistake twice: once in renderAnswer, once in the side-by-side copy."""
     page = PAGES["ask"].read_text(encoding="utf-8")
-    assert "took <= DEADLINE + 0.6" in page
+    assert "took <= HOLD + 0.6" in page
     assert "ran <b>past</b> the" in page
 
 

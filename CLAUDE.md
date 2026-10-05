@@ -309,6 +309,10 @@ allowed to differ from `GENERIC_REFUSAL` — it is chosen from the query text be
 check — but the two must not drift together: a refusal that reads like a scope message, or a scope
 message that hints at withheld material, would give back the distinction §5 exists to remove.
 
+The Ask page states what refusals do with timing, and that is only true of the server it is served from, so
+`create_app` records the deadline `/query` actually enforces in `app.state.refusal_hold` (0 = no hold), the UI router
+injects it into the page, and the page never hardcodes one. With the hold off it says timing is not defended rather than claiming a deadline it is not holding.
+
 `state.explanation` must never appear in an `AskerResponse`. If you're tempted to add detail to the
 asker-facing refusal "to be more helpful," don't — that's the exact failure mode the brief's negative
 case tests for.
