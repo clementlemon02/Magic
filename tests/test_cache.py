@@ -2,6 +2,8 @@
 disclosure hole unless partitioned correctly, so these are security tests.
 """
 
+from datetime import timedelta
+
 import pytest
 
 from src.cache import PermissionAwareCache
@@ -24,17 +26,24 @@ class FakeEmbeddings:
         return vector if any(vector) else [1.0] + [0.0] * (len(self.VOCAB) - 1)
 
 
-def _grants(mapping):
-    """Fake the permissions table: {user_id: [(platform, ref), ...]}."""
+def _grants(mapping, epoch=None):
+    """Fake the permissions table, {user_id: [(platform, ref), ...]}, and corpus_state.
+
+    `epoch` is a one-item list so a test can bump it the way a sync does.
+    """
 
     def execute(sql, params):
+        if "corpus_state" in sql:
+            return [(epoch[0],)] if epoch else []
         return list(mapping.get(params["user_id"], []))
 
     return execute
 
 
-def _cache(mapping):
-    return PermissionAwareCache(embeddings=FakeEmbeddings(), execute=_grants(mapping))
+def _cache(mapping, epoch=None, **options):
+    return PermissionAwareCache(
+        embeddings=FakeEmbeddings(), execute=_grants(mapping, epoch), **options
+    )
 
 
 ANSWER = AskerResponse(
@@ -124,3 +133,57 @@ def test_threshold_is_respected(threshold):
     cache.put("refund review days", ALEX, ANSWER)
     # Shares two of three terms, so cosine is about 0.82 — below either floor.
     assert cache.get("refund review outage", ALEX) is None
+
+
+# --- freshness: what a sync (src/ingestion/sync.py) does to cached answers ---------------
+
+def test_a_sync_invalidates_answers_cached_before_it():
+    """The demo failure, if this is wrong: edit a document, ask again, get the OLD answer
+    from the cache. The sync bumps corpus_state.epoch, so nothing cached earlier matches."""
+    epoch = [0]
+    cache = _cache({1: [("confluence", "SUPPORT/refund-policy")]}, epoch)
+    cache.put("refund review days", ALEX, ANSWER)
+    assert cache.get("refund review days", ALEX) is not None
+
+    epoch[0] = 1  # a sync changed a document
+    assert cache.get("refund review days", ALEX) is None
+
+
+def test_an_unchanged_corpus_keeps_its_entries():
+    """A sync that finds nothing to do must not bump the epoch, or every scheduled run
+    would empty the cache and the latency win with it. Nothing here bumps it."""
+    epoch = [3]
+    cache = _cache({1: [("confluence", "SUPPORT/refund-policy")]}, epoch)
+    cache.put("refund review days", ALEX, ANSWER)
+    assert cache.get("refund review days", ALEX) is not None
+
+
+def test_an_answer_is_filed_under_the_state_it_was_computed_in():
+    """A request straddling a sync computed its answer from the OLD corpus. Filed under a
+    fingerprint read after the sync, it would sit under the NEW epoch and be served as
+    current until it expired. `/query` pins the fingerprint before the graph runs."""
+    epoch = [0]
+    cache = _cache({1: [("confluence", "SUPPORT/refund-policy")]}, epoch)
+    before = cache.fingerprint(ALEX)
+
+    epoch[0] = 1  # the sync lands while the graph is still running
+    cache.put("refund review days", ALEX, ANSWER, fingerprint=before)
+
+    assert cache.get("refund review days", ALEX) is None
+
+
+def test_an_entry_expires():
+    """The backstop for any change the epoch cannot see."""
+    cache = _cache({1: [("confluence", "SUPPORT/refund-policy")]}, ttl_seconds=3600)
+    cache.put("refund review days", ALEX, ANSWER)
+    assert cache.get("refund review days", ALEX) is not None
+
+    cache._entries[0].stored_at -= timedelta(hours=2)
+    assert cache.get("refund review days", ALEX) is None
+
+
+def test_no_ttl_means_no_expiry():
+    cache = _cache({1: [("confluence", "SUPPORT/refund-policy")]})
+    cache.put("refund review days", ALEX, ANSWER)
+    cache._entries[0].stored_at -= timedelta(days=30)
+    assert cache.get("refund review days", ALEX) is not None

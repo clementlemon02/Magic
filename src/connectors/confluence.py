@@ -1,5 +1,6 @@
 """Mock Confluence connector used by the ingestion demo."""
 
+from src.connectors import overlay
 from src.connectors.base import ConfluencePermission, SourceItem
 from src.graph.state import UserContext
 
@@ -74,10 +75,10 @@ class ConfluenceConnector:
     }
 
     def list_items(self) -> list[SourceItem]:
-        return self._items.copy()
+        return overlay.items(self.platform, self._items)
 
     def permissions_for(self, item: SourceItem) -> ConfluencePermission:
-        return self._permissions[item.source_ref]
+        return overlay.permission(self.platform, item.source_ref) or self._permissions[item.source_ref]
 
     def check_access(self, user: UserContext, item: SourceItem) -> bool:
         permission = self.permissions_for(item)

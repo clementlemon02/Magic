@@ -7,10 +7,12 @@ with mxbai-embed-large pulled. Safe to re-run: it replaces documents, chunks,
 permissions and transactions, and leaves users and audit_log alone. The audit
 chain is append-only, and reseeding must not be a way to wipe it.
 
-Grants come from each connector's own `check_access`, evaluated here, once, for
-every user in the database. That stands in for the nightly sync from each
-platform's ACL that a real deployment would run. It is never consulted at
-request time (§1): retrieval joins the `permissions` rows this writes.
+Documents and grants are loaded by src/ingestion/sync.py, the same code the server runs
+on its schedule, against tables this empties first. Each grant comes from the source
+connector's own `check_access`, evaluated for every user in the database. It is never
+consulted at request time (§1): retrieval joins the `permissions` rows this writes.
+After the first load, `python -m scripts.sync_sources` brings the mirror up to date
+without emptying anything.
 """
 
 import random
@@ -19,13 +21,10 @@ from datetime import UTC, datetime, timedelta
 
 import psycopg
 
-from src.api.main import load_user
 from src.config import get_settings
-from src.connectors import connectors
-from src.ingestion.service import ingest_connector
+from src.db.migrate import migrate
+from src.ingestion.sync import sync_sources
 from src.llm.factory import get_embeddings
-
-CONNECTORS = tuple(connectors().values())
 
 
 def _transactions(rng: random.Random):
@@ -45,45 +44,44 @@ def _transactions(rng: random.Random):
 
 def main() -> int:
     settings = get_settings()
-    embeddings = get_embeddings()
+    migrate()
 
     with psycopg.connect(settings.database_url) as conn:
-        user_ids = [r[0] for r in conn.execute("SELECT id FROM users ORDER BY id")]
-        if not user_ids:
+        if not conn.execute("SELECT 1 FROM users LIMIT 1").fetchone():
             print("no users — apply scripts/seed_users.sql first")
             return 1
         conn.execute("TRUNCATE documents, document_chunks, permissions, transactions RESTART IDENTITY")
+        # Committed BEFORE the sync, which opens connections of its own: TRUNCATE holds an
+        # exclusive lock until it commits, and the sync would wait on it forever.
+        conn.commit()
 
-        docs = chunks = 0
-        for connector in CONNECTORS:
-            # ingest_connector commits, so a failure part-way leaves earlier connectors in.
-            summary = ingest_connector(connector, conn, embeddings)
-            docs += summary.documents_ingested
-            chunks += summary.chunks_ingested
+    reports = sync_sources(embeddings=get_embeddings(), trigger="seed")
+    failed = [r for r in reports if r.error]
+    if failed:
+        for r in failed:
+            print(f"{r.platform}: {r.error}")
+        return 1
 
-        users = [load_user(uid) for uid in user_ids]
-        grants = []
-        for connector in CONNECTORS:
-            for item in connector.list_items():
-                for user in users:
-                    if connector.check_access(user, item):
-                        grants.append((user.id, item.platform, item.source_ref))
+    with psycopg.connect(settings.database_url) as conn:
         with conn.cursor() as cur:
-            cur.executemany(
-                "INSERT INTO permissions (user_id, source_platform, source_ref) VALUES (%s, %s, %s)",
-                grants,
-            )
             cur.executemany(
                 "INSERT INTO transactions (account_dept, amount, flagged_aml, occurred_at, acl_tags) "
                 "VALUES (%s, %s, %s, %s, %s)",
                 list(_transactions(random.Random(42))),
             )
         conn.commit()
+        docs = conn.execute("SELECT count(*) FROM documents").fetchone()[0]
+        chunks = conn.execute("SELECT count(*) FROM document_chunks").fetchone()[0]
+        grants = conn.execute(
+            "SELECT p.user_id, r.name, p.source_platform || ':' || p.source_ref "
+            "FROM permissions p JOIN users u ON u.id = p.user_id JOIN roles r ON r.id = u.role_id "
+            "WHERE p.revoked_at IS NULL ORDER BY p.user_id, 3"
+        ).fetchall()
 
     print(f"{docs} documents, {chunks} chunks, {len(grants)} grants, 600 transactions")
-    for user in users:
-        mine = sorted(f"{p}:{r}" for uid, p, r in grants if uid == user.id)
-        print(f"  user {user.id} ({user.role}): {', '.join(mine)}")
+    for user_id, role in sorted({(g[0], g[1]) for g in grants}):
+        mine = ", ".join(g[2] for g in grants if g[0] == user_id)
+        print(f"  user {user_id} ({role}): {mine}")
     return 0
 
 
