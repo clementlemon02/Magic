@@ -53,6 +53,9 @@ class RequestSummary(BaseModel):
     request_id: str
     at: datetime
     user_id: int | None
+    # Who, by name: an officer reading a worklist should not have to remember that user 7 is
+    # Priya. None for a user since deleted from the table.
+    user_name: str | None = None
     query: str
     route: str | None
     escalated: bool
@@ -184,18 +187,23 @@ def build_router(
         limit: int = 100,
         outcome: str = "all",
         q: str = Query(default="", max_length=200),
+        # The brief's inquiry, "everything user jdoe accessed related to the payment-gateway
+        # space": `user` is an id or part of a name or email, `document` is part of
+        # "platform:ref" (so `confluence:SUPPORT/` is a whole space), `days` is the window.
+        asker: str = Query(default="", alias="user", max_length=100),
+        document: str = Query(default="", max_length=200),
         user: UserContext = Depends(officer),
     ):
         # Declared before /audit/{request_id}: FastAPI matches in order, and "recent"
         # would otherwise be taken for a request id and 422 on the UUID parse.
         #
-        # `outcome` and `q` narrow in SQL, before the limit — see recent_requests. A
-        # page that filtered its own fetched window would report "12 refusals" when
-        # the window held 12 of 122.
+        # `outcome`, `q`, `user` and `document` narrow in SQL, before the limit — see
+        # recent_requests. A page that filtered its own fetched window would report
+        # "12 refusals" when the window held 12 of 122.
         since = datetime.now(UTC) - timedelta(days=days)
         rows = await run_in_threadpool(
             partial(audit.recent_requests, since, limit=min(limit, 500),
-                    outcome=outcome, q=q, connect=connect)
+                    outcome=outcome, q=q, user=asker, document=document, connect=connect)
         )
         return [RequestSummary(**row) for row in rows]
 
