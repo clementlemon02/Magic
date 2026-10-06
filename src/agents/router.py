@@ -6,10 +6,13 @@ Few-shot classification into rag | sql | clarify. Compound queries take their
 dominant intent; the MVP does not split sub-queries.
 
 `decline` is decided separately, downstream of a `clarify` verdict — see
-`is_off_piste`. It is not a fourth option in the prompt above, deliberately.
+`is_off_piste`. It is not a fourth option in the prompt above, deliberately. The one
+exception is `is_about_the_assistant`, a fixed list of questions about the assistant
+itself, which is answered before any model is asked.
 """
 
 import json
+import re
 from functools import lru_cache
 from pathlib import Path
 from typing import get_args
@@ -127,6 +130,40 @@ def is_off_piste(query: str, chat_model=None) -> bool:
     return word.split()[0] == "no" if word else False
 
 
+# Questions about the assistant ITSELF, decided without a model. qwen2.5:7b answered YES ("this
+# asks for something from the documents") to `is_off_piste` for "What can you do?" and "Who are
+# you?" — both of which are NO examples in that very prompt — so the two most likely first
+# questions of any demo reached Clarification and were asked "which document?". Prompt wording
+# did not hold it, and each distinction added to a 7B's prompt costs the ones already in it (see
+# SELECTABLE_ROUTES), so these are matched exactly instead.
+#
+# Safe for the reason `decline` is safe at all: it reads the query TEXT alone, before retrieval
+# and before any permission check, so it carries nothing about the corpus or the caller. And it
+# cannot swallow a company question, because it only ever matches the WHOLE message: "what can
+# you do about a chargeback dispute" is not in this set and never will be. Do not grow this into a
+# classifier. A paraphrase outside it falls back to the old behaviour, which is mildly unhelpful
+# and never unsafe; a clever pattern that starts matching real questions is neither.
+ABOUT_THE_ASSISTANT = frozenset({
+    "what can you do", "what can you do for me", "what do you do",
+    "what can you help me with", "what can you help with",
+    "what can i ask you", "what can i ask",
+    "who are you", "what are you", "what are you for", "what is your purpose",
+    "what are your capabilities",
+    "help", "help me", "can you help", "can you help me",
+})
+
+
+def is_about_the_assistant(query: str) -> bool:
+    """True only when the WHOLE message is one of ABOUT_THE_ASSISTANT.
+
+    Lower-cased, with punctuation and digits dropped and an optional leading greeting ("hi,
+    what can you do?") removed. Anything else, however similar, is not.
+    """
+    text = re.sub(r"[^a-z' ]+", " ", query.lower()).strip()
+    text = re.sub(r"^(hi|hello|hey)\b( there)?", "", text)
+    return " ".join(text.split()) in ABOUT_THE_ASSISTANT
+
+
 def _render_examples() -> str:
     return "\n".join(f"Question: {e['query']}\nAnswer: {e['route']}" for e in EXAMPLES)
 
@@ -215,6 +252,10 @@ def route_node(state: GraphState, chat_model=None, embeddings=None) -> dict:
     probability, not a number a model wrote about itself.
     """
     from src.config import get_settings
+
+    # Before any model: see ABOUT_THE_ASSISTANT for what this is and why it stays small.
+    if is_about_the_assistant(state["query"]):
+        return {"route": "decline"}
 
     # §4's "one round only" needs no guard here: Clarification ends the turn, so the
     # Router runs at most once per request.
