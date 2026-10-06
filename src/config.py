@@ -49,6 +49,18 @@ class Settings(BaseSettings):
     # corpus that needs a second hop to answer, lowering this starts refusing them instead.
     retrieval_hop_budget_seconds: float = 2.0
     retrieval_min_score: float = 0.65  # per-model AND per-corpus; see .env.example
+    # Skip the Synthesizer's model call when one retrieved sentence, unedited,
+    # already leads every other candidate on Jaccard word overlap with the query by
+    # this much. The Verifier's own fast path (a verbatim substring check, no
+    # setting of its own) then usually fires right after, so a hit here tends to
+    # skip both model calls. Measured live 30 Sep against the seeded corpus: a
+    # genuine single-sentence answer scores 0.364; the closest live miss — a
+    # sentence sharing only the question's topic nouns ("payment", "outage") but
+    # not what was actually asked ("caused") — scores 0.167; a compound question
+    # answered by only half its evidence scores 0.125. 0.25 sits with margin above
+    # both misses and below the one hit. Swept with evals/fast_path_sweep.py;
+    # re-measure if the stopword list or the corpus changes meaningfully.
+    synthesis_fast_path_min_overlap: float = 0.25
     verifier_confidence_threshold: float = 0.6
     permission_conflict_score_margin: float = 0.05
 

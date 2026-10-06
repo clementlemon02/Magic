@@ -11,6 +11,7 @@ Needs a §4 contract entry and a §8 owner before code freeze.
 
 import re
 
+from src.config import get_settings
 from src.graph.state import Chunk, Citation, GraphState
 
 PROMPT_TEMPLATE = """Answer the employee's question using ONLY the evidence below.
@@ -103,6 +104,99 @@ def _citations(chunks: list[Chunk], answer: str) -> list[Citation]:
     return out
 
 
+_SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+(?=[A-Z(])")
+
+
+def _sentences(text: str) -> list[str]:
+    return [s.strip() for s in _SENTENCE_SPLIT.split(text.strip()) if s.strip()]
+
+
+# A short fragment ("45 days.") can win on Jaccard by chance, since a small
+# denominator inflates the score of whatever little overlap exists. Real prose
+# sentences clear this easily; a fragment that can't is exactly the case where a
+# confident-looking pick is least trustworthy — a Slack reply is exactly the kind
+# of source that produces one.
+_MIN_SENTENCE_TOKENS = 4
+
+
+_COMPOUND_QUERY = re.compile(r"\b(and|or)\b", re.IGNORECASE)
+
+
+def _looks_compound(query: str) -> bool:
+    """A query with more than one real ask needs the model to synthesize across
+    evidence, not one sentence lifted from a single passage.
+
+    Not a threshold problem: "How is customer PII handled, and how does on-call
+    get access?" scored 0.125 live, safely under any reasonable floor — but the
+    same two-part question phrased without "customer" scores 0.25 in
+    tests/test_synthesizer.py, matching a genuine single-answer hit measured
+    elsewhere. The failure is that a sentence answering HALF a compound question
+    can score arbitrarily close to one that fully answers a simple question,
+    depending only on how many words the other half happens to contribute to the
+    query length — no overlap ratio separates them reliably. So compound queries
+    are excluded structurally, the same distinction the Router already draws
+    (CLAUDE.md §4: "dominant-intent only for compound queries").
+    """
+    return bool(_COMPOUND_QUERY.search(query))
+
+
+def _jaccard(a: set[str], b: set[str]) -> float:
+    if not a or not b:
+        return 0.0
+    return len(a & b) / len(a | b)
+
+
+def _extractive_answer(
+    query: str, chunks: list[Chunk], min_overlap: float
+) -> tuple[str, Chunk] | None:
+    """One retrieved chunk's own sentence, UNEDITED, when it clearly answers `query`
+    on its own — or None.
+
+    The entire safety case for skipping the model is "this exact text already sits
+    inside a permitted passage": returning it unedited is what lets the Verifier's
+    own fast path (`_verbatim_chunk`) find it there a moment later and skip its
+    model call too, so a hit here is worth close to the full Synthesizer-plus-
+    Verifier latency, not just one of them.
+
+    Scored by Jaccard, not plain recall against the query. Recall alone was fooled
+    live: "What caused the payment outage?" ranked "Payment outage ENG-4471 lasted
+    47 minutes... graded SEV1" (shares "payment", "outage") above the sentence that
+    actually answers it, "The root cause was an expired TLS certificate..." (shares
+    nothing lexically — it never restates the subject at all). Dividing by the
+    UNION rather than the query length punishes a sentence for its own unrelated
+    words too, which is what separates "restates the topic" from "answers the
+    question": the wrong sentence there scored 0.167, a live single-sentence
+    correct match scored 0.364 — good separation, not a coin flip.
+
+    That case only holds when one sentence clearly leads every other candidate —
+    ties and near-ties fall back to the model rather than guess between two
+    passably-overlapping sentences. `min_overlap` is swept in
+    evals/fast_path_sweep.py, the same way RETRIEVAL_MIN_SCORE is.
+    """
+    if _looks_compound(query):
+        return None
+    query_words = _tokens(query)
+    if not query_words:
+        return None
+    scored = sorted(
+        (
+            (_jaccard(query_words, _tokens(s)), s, c)
+            for c in chunks
+            for s in _sentences(c.content)
+            if len(_tokens(s)) >= _MIN_SENTENCE_TOKENS
+        ),
+        key=lambda t: t[0],
+        reverse=True,
+    )
+    if not scored:
+        return None
+    best_score, best_s, best_c = scored[0]
+    second_score = scored[1][0] if len(scored) > 1 else 0.0
+    if best_score <= second_score or best_score < min_overlap:
+        return None
+    return best_s, best_c
+
+
 def synthesize(
     query: str,
     chunks: list[Chunk],
@@ -131,6 +225,15 @@ def synthesize(
             # The caller's own tags, so the predicate on screen is the one that ran.
             citation = result_citation(sql_result, acl_tags)
             return sentence, [citation] if citation else []
+
+    if sql_result is None:
+        extractive = _extractive_answer(
+            query, chunks, get_settings().synthesis_fast_path_min_overlap
+        )
+        if extractive is not None:
+            sentence, source = extractive
+            citation = source.citation.model_copy(update={"passage": source.content})
+            return sentence, [citation]
 
     prompt = PROMPT_TEMPLATE.format(evidence=_render_evidence(chunks, sql_result), query=query)
     reply = chat_model.invoke(prompt)

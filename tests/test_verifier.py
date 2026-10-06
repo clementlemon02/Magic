@@ -8,6 +8,7 @@ from src.agents.verifier import (
     _grounded_in_figures,
     _grounded_probability,
     _parse,
+    _verbatim_chunk,
     _verify_measured,
     unsupported_quantities,
     verify,
@@ -88,9 +89,13 @@ def test_verify_passes_evidence_into_the_prompt():
             seen["prompt"] = prompt
             return super().invoke(prompt)
 
+    # Paraphrased, not "45 days." verbatim: a literal substring of the chunk now
+    # takes the verbatim fast path below and never reaches a prompt at all — this
+    # test is about prompt construction, so it needs a draft the fast path won't
+    # catch. See test_the_verbatim_fast_path_skips_the_judge_entirely for that path.
     verify(
         "How long?",
-        "45 days.",
+        "The window is 45 days long.",
         [_chunk()],
         chat_model=Recorder('{"grounded": true, "unsupported": [], "confidence": 0.9}'),
     )
@@ -243,6 +248,58 @@ def test_a_rag_answer_still_goes_to_the_judge():
         chat_model=FakeChat('{"grounded": true, "unsupported": [], "confidence": 0.9}'),
     )
     assert out["verification"].confidence == 0.9  # the judge's number, not 1.0
+
+
+# --- the verbatim fast path ------------------------------------------------------
+
+class _Explodes:
+    def invoke(self, prompt):
+        raise AssertionError("a verbatim answer must never reach the judge")
+
+
+def test_verbatim_answer_skips_the_judge_entirely():
+    """The answer's own text already sits inside the one permitted passage —
+    provably grounded without asking a model to agree."""
+    result = verify(
+        "How long?", "Chargebacks must be contested within 45 days.",
+        [_chunk()], chat_model=_Explodes(),
+    )
+    assert result.grounded is True
+    assert result.confidence == 1.0
+    assert result.unsupported == []
+
+
+def test_verbatim_match_ignores_case_and_extra_whitespace():
+    result = verify(
+        "How long?", "  CHARGEBACKS must be   contested within 45 DAYS.  ",
+        [_chunk()], chat_model=_Explodes(),
+    )
+    assert result.grounded is True
+
+
+def test_paraphrase_still_goes_to_the_judge():
+    """Not a literal substring, so the ordinary path — and its ordinary risk of a
+    wrong verdict — still applies; this fast path never guesses."""
+    chat = FakeChat('{"grounded": true, "unsupported": [], "confidence": 0.9}')
+    result = verify("How long?", "The dispute window is 45 days.", [_chunk()], chat_model=chat)
+    assert result.confidence == 0.9  # the judge's own number, so it really ran
+
+
+def test_a_changed_figure_cannot_take_the_verbatim_path():
+    """Safety by construction: an answer that alters a number can never be a
+    substring of the evidence it allegedly came from."""
+    assert _verbatim_chunk("Chargebacks must be contested within 90 days.", [_chunk()]) is None
+
+
+def test_verbatim_path_does_not_apply_when_mixed_with_a_query_result():
+    """CLAUDE.md §4: an answer mixing chunks with a query result is judged as
+    before, even when its wording happens to also be a literal chunk substring."""
+    chat = FakeChat('{"grounded": true, "unsupported": [], "confidence": 0.42}')
+    result = verify(
+        "q", "Chargebacks must be contested within 45 days.", [_chunk()],
+        sql_result={"template": "x", "rows": []}, chat_model=chat,
+    )
+    assert result.confidence == 0.42  # the judge's number, not the fast path's 1.0
 
 
 # --- the figure check ----------------------------------------------------------
