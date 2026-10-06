@@ -119,12 +119,21 @@ incomplete review.
 - **Never widen this to cover probing or injection.** A hostile question about company material routes
   `rag` and meets the §1 predicate and the Verifier like any other, ending in `GENERIC_REFUSAL`; moving
   that judgement into a prompt would make access control a prompt instruction, which §1 forbids.
-  Measured in `evals/adversarial_probe.py`: hostile 6/6 refused, off-piste 5/5 declined, 0 content
-  leaks, 0 existence disclosures.
+  Measured in `evals/adversarial_probe.py`: hostile 7/7 refused, off-piste 7/7 declined, controls 3/3
+  answered, 0 content leaks, 0 existence disclosures.
 - Two distinguishable asker-facing replies is safe here and only here, because the Router picks
   `decline` from the query TEXT alone — before retrieval, before any permission check — so it carries
   nothing about the corpus or the caller's access. `_answer_node` checks it BELOW the escalation
   branch, which is what makes that true rather than merely likely.
+- **Questions about the assistant itself are the one thing decided without a model** (`is_about_the_assistant`,
+  `ABOUT_THE_ASSISTANT`): a fixed set of identity and capability phrasings ("what can you do", "who are you",
+  "help"), matched against the WHOLE message after normalisation and an optional greeting prefix. Measured:
+  qwen2.5:7b answered YES to `is_off_piste` for "What can you do?" and "Who are you?", both NO examples in its own
+  prompt, so the likeliest first questions of a demo reached Clarification and were asked "which document?".
+  It is safe for the reason `decline` is safe: it reads the query text alone, before retrieval and before any
+  permission check. It cannot swallow a company question because only a whole-message match counts, and a test
+  asserts it matches nothing in `evals/cases.py`. **Don't grow it into a classifier.** A paraphrase outside it falls
+  back to the old behaviour, which is mildly unhelpful and never unsafe.
 - The distilled student needs no retraining: it cannot emit `decline`, and never has to. It routes
   off-piste text to `clarify` or below the confidence gate, and the teacher's `clarify` verdict is the
   only door to `is_off_piste`. Student confidence is NOT usable as that door — measured, the two
@@ -163,9 +172,35 @@ incomplete review.
   reach outside it. `INSUFFICIENT` and "no permitted evidence" both yield `draft_answer=None`,
   which the Verifier reports as ungrounded — so the hop loop and Escalation stay the only exits.
 - Runs strictly after the permission-conflict check: restricted content never enters its prompt.
+- **Skips its own model call too, when one retrieved sentence already answers the question,
+  unedited — `_extractive_answer`.** Scored by Jaccard against the query, not plain recall: recall
+  let a sentence win by restating the question's topic words without answering it. Live: "What
+  caused the payment outage?" ranked "Payment outage ENG-4471 lasted 47 minutes... graded SEV1"
+  (shares "payment", "outage") above the sentence that actually answers it, "The root cause was an
+  expired TLS certificate..." (shares nothing lexically — it never restates the subject). Jaccard
+  divides by the union, so a sentence's own unrelated words count against it too: that wrong
+  sentence scores 0.167, a genuine live hit scores 0.364. Fires only when the winner clearly leads
+  every other candidate — a tie decides nothing — and never on a compound query (`_looks_compound`,
+  one check for "and"/"or"): a sentence answering HALF a two-part question can score AT OR ABOVE a
+  genuine single-answer hit depending only on phrasing (measured both live and in
+  `evals/cases.py`), so the query itself is checked, not just the score. `SYNTHESIS_FAST_PATH_MIN_OVERLAP`
+  (0.25) sits with margin above the highest measured miss (0.167) and below the lowest measured hit
+  (0.364); swept in `evals/fast_path_sweep.py`. The returned text is verbatim from one ACL-filtered
+  chunk, which is what lets the Verifier's own fast path below usually find it and skip its call
+  too — together, on the live question that prompted this, they took the request from 5.01s to
+  0.50s with a byte-identical answer.
 
 ### Verifier / Critic — `src/agents/verifier.py`
 - In: `draft_answer`, `retrieved_chunks`, `citations`. Out: `verification`.
+- **Skips the judge entirely when the answer is already a verbatim substring of one cited passage
+  — `_verbatim_chunk`, no threshold of its own.** Stronger than the judge's opinion: if the
+  answer's own characters sit inside one ACL-filtered chunk, every word and figure in it is
+  PROVABLY permitted evidence, not a 7B model's guess that it probably is — so `unsupported_quantities`
+  is redundant here rather than merely skipped, since no figure in a substring can be absent from
+  its own superstring. A changed number, an added "Yes"/"No", or any paraphrase all fail the check
+  and fall through to the judge unchanged: this only ever catches the unambiguous case. Never
+  applied when `sql_result` is set — a mixed answer restates a number nothing here would literally
+  contain, so it is judged as before.
 - Judges against the CITED passages only (`cited_chunks`), not everything retrieved: the
   prompt is prefill-bound, so six passages when the answer used one is slower for nothing.
   Safe by construction — every chunk is already ACL-filtered, so a smaller set of permitted

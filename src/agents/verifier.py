@@ -229,6 +229,44 @@ def _ask(chat_model, prompt: str, answer, query, chunks, sql_result) -> Verifica
                                answer, query, chunks, sql_result)
 
 
+_WHITESPACE = re.compile(r"\s+")
+
+
+def _normalize(text: str) -> str:
+    return _WHITESPACE.sub(" ", text).strip().lower()
+
+
+def _verbatim_chunk(answer: str, chunks: list[Chunk]) -> Chunk | None:
+    """The passage that contains `answer`, character-for-character (modulo case and
+    whitespace), or None.
+
+    A stronger guarantee than the judge gives: if the answer's own text is a
+    substring of one ACL-filtered passage, every word and every figure in it is
+    PROVABLY permitted evidence, not a 7B model's opinion that it probably is.
+    Checked per chunk, never against the whole rendered evidence block, so a match
+    can only ever come from text that actually sat together in one document — never
+    a splice of two that happens to share a substring across the join.
+
+    A number that changed, a "Yes"/"No" prefix added by the model, or any
+    paraphrase all fail this and fall through to the judge below — this is
+    deliberately the narrow, unambiguous case, not a replacement for it.
+    """
+    needle = _normalize(answer)
+    if not needle:
+        return None
+    for c in chunks:
+        if needle in _normalize(c.content):
+            return c
+    return None
+
+
+# Grounded by construction, so this is a statement of fact rather than a judgement,
+# like _FROM_QUERY below. `unsupported_quantities` is skipped, not merely assumed
+# safe to skip: the answer's characters are a subset of one chunk's, so no figure it
+# states can be absent from that chunk.
+_VERBATIM = VerificationResult(grounded=True, unsupported=[], confidence=1.0)
+
+
 def verify(
     query: str,
     draft_answer: str | None,
@@ -243,6 +281,11 @@ def verify(
         return VerificationResult(
             grounded=False, unsupported=["no answer was drafted from permitted evidence"], confidence=1.0
         )
+
+    # sql_result is None: a mixed chunk+query answer restates a number nothing here
+    # would literally contain, so it is drafted and judged as before (CLAUDE.md §4).
+    if sql_result is None and _verbatim_chunk(draft_answer, chunks) is not None:
+        return _VERBATIM
 
     prompt = PROMPT_TEMPLATE.format(
         evidence=_render_evidence(chunks, sql_result), query=query, answer=draft_answer
