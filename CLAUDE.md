@@ -418,6 +418,26 @@ and flags the first row whose `row_hash` doesn't match (`python -m src.agents.au
 - Prompt constants: `PROMPT_TEMPLATE` (module-level, in the agent's own file), examples in
   `<agent>_examples.py` as `EXAMPLES`.
 
+## 7a. UI accessibility
+
+The four pages are held to WCAG 2.2 AA, and that was measured rather than eyeballed: axe-core on every page in
+both themes, a contrast sweep of every visible text node (axe leaves it "incomplete" under sticky overlays), and a
+375px reflow check. `tests/test_a11y.py` pins what that found, so the same bugs cannot quietly return.
+
+- **Colour tokens**: every text token reaches 4.5:1 on `--ground`, `--surface` and `--raised`, in both palettes. The
+  test computes it; change a token, run the test. (`--faint` was 4.0:1 in dark mode, on every page.)
+- **Never dim text with `opacity`.** It multiplies the contrast away (a revoked grant was 2.2:1, a locked link 2.9:1).
+  Say a state with a colour that passes, plus words.
+- **Segmented controls are `aria-pressed` buttons in a labelled `group`**, not `role="tab"`: tabs promise arrow keys
+  and a tabpanel that these never had.
+- **Anything that redraws itself with `innerHTML` hands focus back** to the control the keyboard was on, and a busy
+  control uses `aria-disabled`, not `disabled` (which drops focus). Sorting, expanding, picking a row, Sync now.
+- **Failures are `role="alert"`, results are `role="status"`.** Don't put a redrawn table in a live region; announce
+  the outcome instead. Repeated controls say which item they act on (`aria-label="Revoke confluence:…"`).
+- **No single-key shortcuts**, and every page opens with a skip link to `<main id="main">`.
+- **Reflow at 320px**: the app bar wraps, no inline width over a phone, and a wide data table scrolls inside its own
+  `.table-wrap` rather than the page.
+
 ## 8. Workstream ownership
 
 | Workstream | Owner | Key paths |
