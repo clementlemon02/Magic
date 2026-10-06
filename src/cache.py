@@ -11,6 +11,19 @@ else does. Revoking a grant changes the fingerprint, which invalidates the affec
 entries with no extra bookkeeping: the same property §1 already relies on, that
 authorisation is re-derived rather than remembered.
 
+The corpus is part of the fingerprint too. A sync (src/ingestion/sync.py) bumps
+`corpus_state.epoch` whenever it changes a document, a chunk or a grant, so an answer
+cached before an edit stops matching afterwards. It is read from the database rather than
+cleared in-process because the sync may run in another process (`scripts.sync_sources`,
+a second worker) and nothing else would tell this one. `ttl_seconds` is the backstop for
+any change the epoch does not see.
+
+An entry is filed under the fingerprint taken BEFORE the answer was computed, which `/query`
+passes back to `put`. Re-reading it after would file an answer built from the old corpus
+under the new one: a request that straddles a sync, or a revoke, would then serve stale
+evidence to everyone who shares the new fingerprint — including evidence they may no longer
+read — until it aged out.
+
 ponytail: in-process dict, so it is per-worker and empty after a restart. That is
 the right size for a demo; move to Redis or a pgvector table if it has to survive
 a deploy or be shared across workers.
@@ -29,6 +42,8 @@ FINGERPRINT_SQL = """
     WHERE user_id = %(user_id)s AND revoked_at IS NULL
     ORDER BY source_platform, source_ref
 """
+
+EPOCH_SQL = "SELECT epoch FROM corpus_state WHERE id = 1"
 
 
 @dataclass
@@ -74,11 +89,13 @@ class PermissionAwareCache:
         *,
         similarity_threshold: float = 0.93,
         max_entries: int = 256,
+        ttl_seconds: float | None = None,
         embeddings=None,
         execute=None,
     ):
         self.similarity_threshold = similarity_threshold
         self.max_entries = max_entries
+        self.ttl_seconds = ttl_seconds
         self._embeddings = embeddings
         self._execute = execute or _psycopg_execute
         self._entries: list[CacheEntry] = []
@@ -96,12 +113,15 @@ class PermissionAwareCache:
         """A stable digest of everything this caller may currently read.
 
         Covers the ACL tags AND the live grant rows, because two callers can share a
-        role and still differ by an individual grant. Reading it costs one indexed
-        query — far less than the retrieval and three model calls a miss would run.
+        role and still differ by an individual grant, and the corpus epoch, so a sync
+        invalidates what it made stale. Two indexed queries — far less than the
+        retrieval and three model calls a miss would run.
         """
         grants = self._execute(FINGERPRINT_SQL, {"user_id": user.id})
+        epoch = self._execute(EPOCH_SQL, {})
         material = "|".join(sorted(user.acl_tags()))
         material += "||" + "|".join(f"{platform}:{ref}" for platform, ref in grants)
+        material += "||epoch:" + (str(epoch[0][0]) if epoch else "none")
         return hashlib.sha256(material.encode()).hexdigest()
 
     def get(self, query: str, user: UserContext) -> AskerResponse | None:
@@ -109,9 +129,16 @@ class PermissionAwareCache:
         entry = self.lookup(query, user)
         return entry.response if entry else None
 
-    def lookup(self, query: str, user: UserContext) -> CacheEntry | None:
-        digest = self.fingerprint(user)
-        candidates = [e for e in self._entries if e.fingerprint == digest]
+    def lookup(
+        self, query: str, user: UserContext, *, fingerprint: str | None = None
+    ) -> CacheEntry | None:
+        digest = fingerprint or self.fingerprint(user)
+        now = datetime.now(UTC)
+        candidates = [
+            e for e in self._entries
+            if e.fingerprint == digest
+            and (self.ttl_seconds is None or (now - e.stored_at).total_seconds() < self.ttl_seconds)
+        ]
         if not candidates:
             self.misses += 1
             return None
@@ -135,11 +162,13 @@ class PermissionAwareCache:
         user: UserContext,
         response: AskerResponse,
         route: str | None = None,
+        *,
+        fingerprint: str | None = None,
     ) -> None:
         self._entries.append(
             CacheEntry(
                 vector=self._embed(query),
-                fingerprint=self.fingerprint(user),
+                fingerprint=fingerprint or self.fingerprint(user),
                 response=response,
                 stored_at=datetime.now(UTC),
                 route=route,

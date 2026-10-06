@@ -65,6 +65,21 @@ const ago = (iso) => {
   return hours < 48 ? `${hours}h ago` : `${Math.round(hours / 24)} days ago`;
 };
 
+// What the last "Sync now" did, kept here because loadSources() redraws the whole column.
+let syncNote = "";
+
+const summarize = (r) => {
+  if (r.error) return `${r.platform}: failed`;
+  if (r.skipped) return `${r.platform}: already running`;
+  const parts = [
+    r.added && `${r.added} added`, r.updated && `${r.updated} updated`,
+    r.removed && `${r.removed} removed`,
+    r.grants_revoked && `${r.grants_revoked} grants revoked`,
+    r.grants_added && `${r.grants_added} grants added`,
+  ].filter(Boolean);
+  return `${r.platform}: ${parts.length ? parts.join(", ") : "nothing changed"}`;
+};
+
 async function loadSources() {
   $("sources").innerHTML = `<div class="note">Loading…</div>`;
   const response = await IB.api("/admin/sources", {}).catch(() => null);
@@ -72,9 +87,14 @@ async function loadSources() {
   if (response.status === 403) { $("sources").innerHTML = forbidden(); return; }
   const sources = await response.json();
   // Stale is a judgement about freshness, so it is drawn, not just stated: the
-  // permissions table is a mirror of each source's ACLs and only as fresh as this.
-  const stale = (iso) => !iso || (Date.now() - new Date(iso)) > 24 * 3600 * 1000;
-  $("sources").innerHTML = sources.map((s) => `
+  // permissions table is a mirror of each source's ACLs and only as fresh as its last
+  // sync. The server decides (twice the sync interval), because only it knows the interval.
+  $("sources").innerHTML = `
+    <div class="panel" style="margin-bottom:12px;display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+      <button id="sync" type="button">Sync now</button>
+      <span id="sync-note" role="status" style="font-size:12.5px;color:var(--muted)">${esc(syncNote) ||
+        "Re-reads every source and brings the mirror in line: edits, deletions and permission changes."}</span>
+    </div>` + sources.map((s) => `
     <div class="panel" style="margin-bottom:12px">
       <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
         <span style="display:grid;place-items:center;width:34px;height:34px;border-radius:8px;
@@ -85,21 +105,44 @@ async function loadSources() {
             ${s.documents} documents · ${s.chunks} chunks · ${s.grants} grants</div>
         </div>
         ${s.restricted ? `<span class="tag restricted">${s.restricted} restricted</span>` : ""}
-        <span class="tag ${stale(s.last_ingested) ? "" : "clear"}"
-          style="${stale(s.last_ingested) ? "color:var(--caution)" : ""}">
-          ${stale(s.last_ingested) ? "stale" : "connected"}</span>
+        <span class="tag ${s.stale || s.last_error ? "" : "clear"}"
+          style="${s.stale || s.last_error ? "color:var(--caution)" : ""}">
+          ${s.last_error ? "sync failing" : s.stale ? "stale" : "connected"}</span>
       </div>
       <div style="display:flex;align-items:center;gap:16px;margin-top:12px;padding-top:11px;
-        border-top:1px solid var(--line);font-size:12.5px;color:var(--muted)">
-        <span>Ingested ${esc(ago(s.last_ingested))}</span>
+        border-top:1px solid var(--line);font-size:12.5px;color:var(--muted);flex-wrap:wrap">
+        <span>${s.last_synced ? `${s.last_error ? "Last good sync" : "Synced"} ${esc(ago(s.last_synced))}`
+          : `Never synced — documents loaded ${esc(ago(s.last_ingested))}`}</span>
         <span class="spacer" style="margin-left:auto"></span>
-        <span style="font-family:var(--mono);font-size:11.5px">python -m scripts.seed_demo</span>
+        <span style="font-family:var(--mono);font-size:11.5px">python -m scripts.sync_sources</span>
       </div>
+      ${s.last_error ? `<p class="signin-error" style="margin:10px 0 0">The last attempt failed:
+        ${esc(s.last_error)}. Nothing was changed; the mirror is as the last good sync left it.</p>` : ""}
     </div>`).join("") + `
     <div class="note">Restricted documents are re-checked against the source at question
       time, so a revocation upstream takes effect before the next answer. Everything else
-      rides on this mirror.</div>`;
+      rides on this mirror, which each sync brings back in line with the source: edits,
+      deletions and permission changes.</div>`;
 }
+
+$("sources").addEventListener("click", async (e) => {
+  const button = e.target.closest("#sync");
+  if (!button) return;
+  button.disabled = true;
+  button.textContent = "Syncing…";
+  const response = await IB.api("/admin/sync", { method: "POST", headers: {} }).catch(() => null);
+  if (!response || !response.ok) {
+    // Say so, and say nothing changed: a sync that failed silently would leave an officer
+    // believing the mirror had caught up with an edit it had not.
+    const detail = response ? (await response.json().catch(() => ({}))).detail : "";
+    syncNote = `The sync did not run${detail ? `: ${detail}` : " — the server did not respond."}`;
+  } else {
+    syncNote = (await response.json()).map(summarize).join(" · ");
+  }
+  // Re-read rather than patch: the tables are the truth, and grants may have moved too.
+  await loadSources();
+  loadGrants();
+});
 
 async function loadGrants() {
   $("grants").innerHTML = `<div class="note">Loading…</div>`;

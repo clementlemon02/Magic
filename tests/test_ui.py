@@ -447,3 +447,11 @@ def test_the_audit_filters_refetch_rather_than_narrowing_what_is_loaded():
     # Every control refetches; none of them filters `requests` in place.
     assert page.count("loadList()") >= 3
     assert "requests.filter(" not in page
+
+
+def test_a_citation_on_the_ask_page_says_how_fresh_its_source_is_and_flags_an_old_one():
+    """Brief scenario 2: never silently stale. Past an hour — the brief's own outer bound —
+    the note turns into a warning, because a sync that quietly stopped is how it happens."""
+    page = PAGES["ask"].read_text(encoding="utf-8")
+    assert "c.as_of ? syncedNote(c.as_of)" in page
+    assert "may be out of date" in page and "minutes > 60" in page

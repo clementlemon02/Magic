@@ -28,8 +28,10 @@ from src.api.compliance import build_router
 from src.api.ui import build_router as build_ui_router
 from src.cache import PermissionAwareCache
 from src.config import get_settings
+from src.connectors import is_restricted
 from src.graph.graph import build_graph, build_response
 from src.graph.state import AskerResponse, AuditEvent, GraphState, Stage, UserContext
+from src.ingestion.sync import last_synced, sync_sources
 from src.llm.factory import ModelUnavailable
 
 
@@ -245,6 +247,44 @@ async def _warm(settings) -> None:
         logger.warning("warm-up skipped: %s", error)
 
 
+def _rests_on_restricted(response: AskerResponse) -> bool:
+    """Does this answer cite a document the source holds as restricted? See is_restricted."""
+    return any(is_restricted(c.source_platform, c.source_ref) for c in response.citations)
+
+
+async def _migrate(settings) -> None:
+    """Bring a database created before a column existed up to the current schema.
+
+    Awaited before the server takes traffic, because the sync and the cache fingerprint
+    both read what it adds. Every statement is additive and idempotent (src/db/migrate.py).
+    An unreachable database is /health's to report, not a reason to refuse to start.
+    """
+    if not settings.migrate_on_startup:
+        return
+
+    from src.db.migrate import migrate
+
+    try:
+        await run_in_threadpool(migrate)
+    except Exception as error:  # noqa: BLE001
+        logger.warning("schema migration skipped: %s", error)
+
+
+async def _sync_loop(settings, sync: Callable) -> None:
+    """Keep the mirror inside the freshness bound: one interval, then the time a sync takes.
+
+    Sleeps first, so a restart does not re-embed anything the moment it comes up. A failed
+    run is already recorded per source by sync_sources; this only keeps the loop alive.
+    """
+    interval = settings.sync_interval_minutes * 60
+    while True:
+        await asyncio.sleep(interval)
+        try:
+            await run_in_threadpool(sync, "schedule", None)
+        except Exception:  # noqa: BLE001 - the next interval tries again
+            logger.exception("scheduled sync failed")
+
+
 def create_app(
     nodes: dict | None = None,
     user_loader=load_user,
@@ -252,6 +292,8 @@ def create_app(
     cache=None,
     throttle=None,
     query_limit=None,
+    sync=None,
+    synced_at=None,
     *,
     refusal_deadline: float | None = None,
     clock=time.monotonic,
@@ -260,20 +302,43 @@ def create_app(
     """Build the app. `clock` and `sleeper` are injectable so padding is testable
     without sleeping; `refusal_deadline` overrides the configured value, 0 disables it.
     """
+    if sync is None:
+        def sync(trigger: str, user_id: int | None = None):
+            return sync_sources(trigger=trigger, user_id=user_id)
+
+    if synced_at is None:
+        synced_at = last_synced
+
+    async def stamped(response: AskerResponse) -> AskerResponse:
+        """Say how current each cited source is. A refusal has no citations, so nothing here
+        can reach one (§5); an answer is stamped on the way out and never in the cache, so a
+        hit reports the sync as it is now rather than as it was when the answer was filed."""
+        if not response.citations:
+            return response
+        when = await run_in_threadpool(synced_at)
+        return response.model_copy(update={"citations": [
+            c.model_copy(update={"as_of": when.get(c.source_platform)}) for c in response.citations
+        ]})
+
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
+        current = get_settings()
+        await _migrate(current)
         # Not awaited: the server should be answering before the model finishes
         # loading, and a warm-up that fails is a slow first answer, not a bad start.
-        task = asyncio.create_task(_warm(get_settings()))
+        tasks = [asyncio.create_task(_warm(current))]
+        if current.sync_interval_minutes > 0:
+            tasks.append(asyncio.create_task(_sync_loop(current, sync)))
         yield
-        task.cancel()
+        for task in tasks:
+            task.cancel()
 
     app = FastAPI(title="Internal Brain", lifespan=lifespan)
     nodes = nodes or default_nodes()
     graph = build_graph(**nodes)
     # Built before the routers: both the compliance router and /query depend on it.
     caller, officer = build_dependencies(user_loader)
-    app.include_router(build_router(user_loader, officer=officer))
+    app.include_router(build_router(user_loader, officer=officer, sync=sync))
     app.include_router(build_ui_router())
     settings = get_settings()
     if throttle is None:
@@ -285,7 +350,10 @@ def create_app(
             limit=settings.query_max_per_window, window=settings.query_window_seconds
         )
     if cache is None and settings.query_cache_enabled:
-        cache = PermissionAwareCache(similarity_threshold=settings.query_cache_similarity)
+        cache = PermissionAwareCache(
+            similarity_threshold=settings.query_cache_similarity,
+            ttl_seconds=settings.query_cache_ttl_seconds or None,
+        )
     if refusal_deadline is None:
         refusal_deadline = (
             settings.refusal_deadline_seconds if settings.refusal_padding_enabled else 0.0
@@ -418,8 +486,15 @@ def create_app(
         # `user` is already resolved: the dependency verified the token and read the
         # row before this handler ran.
 
+        stamp = None
         if cache is not None:
-            entry = await run_in_threadpool(cache.lookup, request.query, user)
+            # Taken BEFORE the lookup and the graph, and handed to `put`: an answer is filed
+            # under the state of the world it was computed in, not the one it finished in.
+            # See src/cache.py for what filing it after would let through.
+            stamp = await run_in_threadpool(cache.fingerprint, user)
+            entry = await run_in_threadpool(
+                cache.lookup, request.query, user, fingerprint=stamp
+            )
             if entry is not None:
                 cached = entry.response
                 # Served without running the graph, so audited here: an answer that
@@ -442,9 +517,9 @@ def create_app(
                 # the request that filled the cache, not this one, and the UI would
                 # show seconds of retrieval and synthesis that did not happen. One
                 # stage for what actually ran.
-                return cached.model_copy(update={
+                return await stamped(cached.model_copy(update={
                     "trace": [Stage(node="cache", hop=0, ms=(clock() - started) * 1000)]
-                })
+                }))
 
         state = await run_in_threadpool(graph.invoke, initial_state(request.query, user))
         # build_response is the only thing that shapes the reply: it cannot carry
@@ -459,12 +534,15 @@ def create_app(
             return response
 
         # Answers are cached, and not padded — answer versus refusal is already
-        # visible in the text.
-        if cache is not None:
+        # visible in the text. Except answers resting on a RESTRICTED document: a hit never
+        # reaches the query-time source recheck, so those take the full path every time
+        # (found by evals/freshness_probe.py, which saw one served after its ACL narrowed).
+        if cache is not None and not await run_in_threadpool(_rests_on_restricted, response):
             await run_in_threadpool(
-                cache.put, request.query, user, response, state.get("route")
+                cache.put, request.query, user, response, state.get("route"),
+                fingerprint=stamp,
             )
-        return response
+        return await stamped(response)
 
     return app
 

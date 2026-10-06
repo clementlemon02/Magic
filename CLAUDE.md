@@ -145,7 +145,7 @@ incomplete review.
   restricted chunk scores `PERMISSION_CONFLICT_SCORE_MARGIN` above the top filtered result — id + owning
   source only, never content. Reformulates and re-runs while `hop_count < RETRIEVAL_MAX_HOPS` and the
   Verifier reports insufficient grounding.
-- `acl_tags` and `permissions` are a MIRROR of each source's ACLs, fresh only as of the last ingest.
+- `acl_tags` and `permissions` are a MIRROR of each source's ACLs, fresh only as of the last sync (see Source sync).
   `drop_source_revoked` closes that window by asking the connector at query time, for **restricted**
   documents only (`SOURCE_RECHECK_ENABLED`). Fails closed; a drop is recorded as `source_recheck_denied`,
   identity only. Rules and rationale in `src/connectors/__init__.py`.
@@ -255,6 +255,36 @@ class SourceConnector(Protocol):
 again at query time for restricted documents, via `source_denies`, to close the mirror's staleness
 window. `src/connectors/__init__.py` holds the one platform → connector registry; don't build another.
 
+### Source sync — `src/ingestion/sync.py`
+- Keeps the mirror (`documents`, `document_chunks`, `permissions`) in step with the sources: on a schedule
+  (`SYNC_INTERVAL_MINUTES`, default 10, 0 = off), on `POST /admin/sync` (officer; the Sources page's "Sync now")
+  and from `python -m scripts.sync_sources`. `scripts/seed_demo.py` now loads through the same code.
+- **The freshness bound is one interval plus the time a sync takes** (the brief asks for minutes to ~1 hour).
+  Restricted documents are tighter: the query-time recheck asks the source on every request, so narrowing one
+  takes effect with no sync at all.
+- Per platform, ONE transaction: advisory lock (or skip) → list the source and read the mirror → plan
+  (add / rewrite / retag / remove, by content hash) → embed only what changed → apply → reconcile grants →
+  bump `corpus_state.epoch` → a `source_syncs` row, and a `source_sync` audit event when something moved.
+  Any failure rolls that platform back and is recorded; a source that cannot be listed is never read as
+  "everything was deleted". `make_plan` and `grant_changes` are pure and carry the decisions.
+- **Grants are asymmetric on purpose.** The source is authoritative, so a live grant it no longer backs is
+  revoked (`revoked_by = 'source'`). A grant it backs is restored only if a SYNC took it away: an officer's
+  revoke (`revoked_by IS NULL`) stands. A sync cannot widen access past §1, which needs tag overlap AND a live grant.
+- **The answer cache is invalidated by the epoch**, which is part of its fingerprint and read from the
+  database, so a sync in another process empties this one's cache too. An answer is filed under the fingerprint
+  taken BEFORE the graph ran (`/query` passes it to `put`). **Answers that cite a restricted document are never
+  cached** (`is_restricted`): a cache hit never reaches the source recheck, so a cached one would outlive
+  a revocation. `QUERY_CACHE_TTL_SECONDS` is the backstop for anything the epoch cannot see.
+- Citations carry `as_of`, when their source last synced, stamped in `/query` and never by retrieval.
+  The Ask page turns it into a warning past an hour. A refusal has no citations, so it cannot carry one (§5).
+- A document row with no `content_hash` (older than the column) counts as changed, so the first sync after an
+  upgrade re-embeds once and cannot miss an edit. `src/db/migrate.py` applies the additive schema changes at
+  startup (`MIGRATE_ON_STARTUP`); `schema.sql` is still what a fresh database gets.
+- The mock sources can be edited: `python -m scripts.mock_source edit|access|delete|restore|reset` writes
+  `.mock_sources.json` (`MOCK_SOURCES_PATH`), which every mock connector reads through `src/connectors/overlay.py`.
+  `python -m evals.freshness_probe --yes` is the end-to-end check (needs a server and Ollama, and edits sources
+  while it runs, so never against an instance someone is presenting from).
+
 ## 4a. Authentication — `src/api/auth.py`
 
 Every route that reads or changes anything takes a signed bearer token. The token carries ONE
@@ -334,7 +364,7 @@ and flags the first row whose `row_hash` doesn't match (`python -m src.agents.au
 - Env vars: `SCREAMING_SNAKE_CASE`, declared in `.env.example` before use, never hardcoded.
 - API routes: `POST /auth/login`, `GET /auth/me`, `POST /query`, `GET /audit/{request_id}`,
   `GET /audit/recent`, `GET /audit/verify`, `GET /knowledge-gaps`, `GET /access-gaps`,
-  `GET /admin/sources`, `GET /admin/permissions`, admin revoke under
+  `GET /admin/sources`, `POST /admin/sync`, `GET /admin/permissions`, admin revoke under
   `POST /admin/permissions/revoke`. Pages: `/` ask, `/dashboard` gaps, `/audit`, `/sources`.
 - Prompt constants: `PROMPT_TEMPLATE` (module-level, in the agent's own file), examples in
   `<agent>_examples.py` as `EXAMPLES`.

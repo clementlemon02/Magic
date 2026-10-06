@@ -225,6 +225,19 @@ function highlightAcl(sql) {
     line.includes("acl_tags") ? `<span class="acl">${line}</span>` : line).join("\n");
 }
 
+// "Never silently stale" (brief scenario 2): each source says when the mirror last caught up
+// with it. Past the brief's own outer bound of an hour it is drawn as a warning, because a
+// sync that has quietly stopped is exactly how an answer ends up stale without saying so.
+function syncedNote(iso) {
+  const minutes = Math.max(0, Math.round((Date.now() - new Date(iso)) / 60000));
+  const age = minutes < 1 ? "just now" : minutes < 60 ? `${minutes} min ago`
+    : minutes < 2880 ? `${Math.round(minutes / 60)}h ago` : `${Math.round(minutes / 1440)} days ago`;
+  const old = minutes > 60;
+  return `<span class="synced" style="font:400 11.5px var(--mono);white-space:nowrap;color:var(--${
+    old ? "caution" : "muted"})" title="When the mirror last caught up with this source">${
+    old ? "may be out of date · " : ""}synced ${age}</span>`;
+}
+
 function renderAnswer(reply, seconds, { bare = false } = {}) {
   // `bare` is the side-by-side column: the scale above it already carries the
   // timing, and the explanation is stated once under both columns instead of twice.
@@ -240,6 +253,7 @@ function renderAnswer(reply, seconds, { bare = false } = {}) {
         <div class="source">
           <span class="ref"><span class="plat">${esc(c.source_platform)}:</span>${esc(c.source_ref)}</span>
           <span class="title">${esc(c.title)}</span>
+          ${c.as_of ? syncedNote(c.as_of) : ""}
           <span class="actions">
             ${evidence ? `<button class="copy" type="button" data-peek>Show ${
               c.query ? "query" : "passage"}</button>` : ""}

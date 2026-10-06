@@ -187,6 +187,43 @@ def test_answers_are_cached_and_served():
     assert cache.hits == 1
 
 
+def _cited(platform, ref):
+    from src.graph.state import Citation
+
+    return Citation(document_id=1, title="t", source_platform=platform, source_ref=ref)
+
+
+@pytest.mark.parametrize(
+    ("platform", "ref", "cached"),
+    [
+        ("confluence", "SUPPORT/refund-policy", True),  # internal at the source
+        ("confluence", "COMPLIANCE/aml-escalation", False),  # restricted at the source
+        ("confluence", "NO/SUCH-PAGE", False),  # the source no longer has it: cannot verify
+        ("internal", "transactions", True),  # nothing upstream to ask
+    ],
+)
+def test_an_answer_resting_on_a_restricted_document_is_never_cached(platform, ref, cached):
+    """A cache hit never reaches the query-time source recheck. A restricted answer cached
+    before the source narrowed its ACL would be served after it, until the next sync — the
+    window the recheck exists to close (evals/freshness_probe.py saw it happen)."""
+    from src.cache import PermissionAwareCache
+
+    class FakeEmb:
+        def embed_query(self, text):
+            return [1.0, 0.0]
+
+    cache = PermissionAwareCache(embeddings=FakeEmb(), execute=lambda sql, p: [])
+    client = TestClient(
+        create_app(
+            nodes=_nodes(synthesizer=lambda s: {"draft_answer": "x", "citations": [_cited(platform, ref)]}),
+            user_loader=lambda uid: ALEX, cache=cache,
+        ),
+        raise_server_exceptions=False,
+    )
+    assert client.post("/query", json={"query": "q"}, headers=as_user(1)).status_code == 200
+    assert bool(cache._entries) is cached
+
+
 def test_a_transport_fault_is_named_where_the_cause_chain_still_exists():
     """The factory classifies, not the error handler, and this is why.
 

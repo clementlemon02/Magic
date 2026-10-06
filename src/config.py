@@ -75,6 +75,21 @@ class Settings(BaseSettings):
     # retrieval_min_score — re-measure it if the embedding model changes.
     query_cache_enabled: bool = True
     query_cache_similarity: float = 0.93
+    # An answer older than this is never served from the cache, whatever else says it is
+    # current. The brief bounds how stale an answer may be at about an hour; this is the
+    # backstop for any change the corpus version (src/cache.py) does not see.
+    query_cache_ttl_seconds: int = 3600
+
+    # How often the server re-reads every source and reconciles documents, chunks and
+    # grants (src/ingestion/sync.py). This IS the freshness bound: an edit at a source
+    # reaches answers within one interval plus the time a sync takes. 0 turns the schedule
+    # off; `POST /admin/sync` and `python -m scripts.sync_sources` still work.
+    sync_interval_minutes: int = 10
+    # Apply the additive, idempotent schema changes at startup, so a database created
+    # before a column existed keeps working. Off in tests, which build their own schema.
+    migrate_on_startup: bool = True
+    # The mock sources' authored state (scripts/mock_source.py); relative to the repo root.
+    mock_sources_path: str = ".mock_sources.json"
 
     # Cosine floor for grouping unanswered questions into one knowledge gap.
     # Per-model, like retrieval_min_score.

@@ -28,7 +28,11 @@ CREATE TABLE permissions (
     source_platform TEXT NOT NULL,              -- 'confluence' | 'jira' | 'slack' | 'drive' | 'internal'
     source_ref      TEXT NOT NULL,              -- native id: space/page, project/issue, channel, file/folder
     granted_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
-    revoked_at      TIMESTAMPTZ                 -- NULL = currently granted
+    revoked_at      TIMESTAMPTZ,                -- NULL = currently granted
+    -- 'source' when a sync revoked it because the source stopped granting access. NULL for a
+    -- live row and for an officer's revoke: a sync never re-grants over a deliberate local
+    -- revoke, only restores what it took away itself (src/ingestion/sync.py).
+    revoked_by      TEXT
 );
 CREATE INDEX ON permissions (user_id, source_platform, source_ref);
 
@@ -40,8 +44,16 @@ CREATE TABLE documents (
     dept            TEXT NOT NULL,
     sensitivity     TEXT NOT NULL,               -- 'internal' | 'restricted'
     acl_tags        TEXT[] NOT NULL,             -- normalized depts/roles allowed to see this doc
-    created_at      TIMESTAMPTZ DEFAULT now()
+    created_at      TIMESTAMPTZ DEFAULT now(),
+    -- Freshness (src/ingestion/sync.py). content_hash is SHA-256 of the whitespace-normalised
+    -- text mirrored here: how a sync tells "edited" from "unchanged" without re-embedding
+    -- everything. NULL on a row written before the column existed; the sync adopts it.
+    content_hash      TEXT,
+    source_updated_at TIMESTAMPTZ,                -- when the SOURCE says it last changed, if it says
+    synced_at         TIMESTAMPTZ DEFAULT now()   -- when this version reached the mirror
 );
+-- The sync addresses a document by what the source calls it.
+CREATE UNIQUE INDEX documents_source_key ON documents (source_platform, source_ref);
 
 CREATE TABLE document_chunks (
     id           SERIAL PRIMARY KEY,
@@ -92,3 +104,31 @@ CREATE TABLE escalations (
     status      TEXT NOT NULL DEFAULT 'pending',-- 'pending' | 'reviewed' | 'dismissed'
     created_at  TIMESTAMPTZ DEFAULT now()
 );
+
+-- One row per sync attempt per source: what the Sources page calls "last synced", and the
+-- evidence that the bounded freshness window is actually being kept.
+CREATE TABLE source_syncs (
+    id              BIGSERIAL PRIMARY KEY,
+    source_platform TEXT NOT NULL,
+    trigger         TEXT NOT NULL,               -- 'schedule' | 'manual' | 'seed'
+    started_at      TIMESTAMPTZ NOT NULL,
+    finished_at     TIMESTAMPTZ NOT NULL,
+    added           INTEGER NOT NULL DEFAULT 0,
+    updated         INTEGER NOT NULL DEFAULT 0,  -- content re-embedded, or ACL/metadata changed
+    removed         INTEGER NOT NULL DEFAULT 0,
+    unchanged       INTEGER NOT NULL DEFAULT 0,
+    grants_added    INTEGER NOT NULL DEFAULT 0,
+    grants_revoked  INTEGER NOT NULL DEFAULT 0,
+    error           TEXT                         -- NULL = succeeded
+);
+CREATE INDEX ON source_syncs (source_platform, finished_at DESC);
+
+-- A single row. `epoch` goes up whenever a sync changes what answers could say, and is part
+-- of the answer cache's fingerprint (src/cache.py), so a cached answer from before an edit
+-- stops matching in every process at once with no message passed between them.
+CREATE TABLE corpus_state (
+    id          SMALLINT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+    epoch       BIGINT NOT NULL DEFAULT 0,
+    changed_at  TIMESTAMPTZ
+);
+INSERT INTO corpus_state (id, epoch) VALUES (1, 0);
