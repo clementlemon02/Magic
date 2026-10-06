@@ -33,6 +33,9 @@ AuditEventType = Literal[
     "compliance_inquiry",
     "permission_revoked",
     "permission_granted",
+    # The mirror was reconciled with a source (src/ingestion/sync.py): which documents
+    # changed and whose access moved. Identity only, never content.
+    "source_sync",
 ]
 # Why a request was refused. Stored in `escalations.reason` and in the audit trail,
 # never shown to the asker (§5).
@@ -117,6 +120,13 @@ class Citation(BaseModel):
     # been shown in summary — every chunk reaching here passed the §1 filter.
     passage: str | None = None
     query: str | None = None
+
+    # When the mirror last caught up with this citation's SOURCE (src/ingestion/sync.py), so
+    # an answer says how current it is rather than implying it: the brief's "never silently
+    # serves outdated content". Stamped at the API boundary, never by retrieval — it is a
+    # property of the sync, not of the match — and, like `passage`, it has no path out on a
+    # refusal, because `build_response` gives a refusal no citations.
+    as_of: datetime | None = None
 
 
 class Chunk(BaseModel):

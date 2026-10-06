@@ -221,10 +221,13 @@ def test_a_cache_hit_reports_the_cache_not_the_run_it_replays():
     )
 
     class AlwaysHits:
-        def lookup(self, query, user):
+        def fingerprint(self, user):
+            return "f"
+
+        def lookup(self, query, user, *, fingerprint=None):
             return entry
 
-        def put(self, query, user, response, route=None):
+        def put(self, query, user, response, route=None, *, fingerprint=None):
             raise AssertionError("a hit must not re-cache")
 
     audited = {}
@@ -238,6 +241,69 @@ def test_a_cache_hit_reports_the_cache_not_the_run_it_replays():
     # The audit records how the answer was ORIGINALLY produced. Without this it gets
     # initial_state's "rag" placeholder, because the Router never ran.
     assert audited["route"] == "sql", "a cached sql answer was audited as rag"
+
+
+# --- freshness: an answer says how current its sources are ----------------------------
+
+SYNCED = datetime(2026, 10, 5, 9, 30, tzinfo=UTC)
+
+
+def _stamped_client(synced_at, **overrides):
+    return TestClient(create_app(nodes=_nodes(**overrides), user_loader=lambda uid: ALEX,
+                                 synced_at=synced_at))
+
+
+def test_each_citation_says_when_its_source_last_synced():
+    """The brief: the assistant 'never silently serves outdated content as if it were current'."""
+    body = _stamped_client(lambda: {"confluence": SYNCED}).post(
+        "/query", json={"query": "q"}, headers=as_user(1)).json()
+    assert body["citations"][0]["as_of"] == "2026-10-05T09:30:00Z"
+
+
+def test_a_source_that_has_never_synced_is_left_unstamped_rather_than_guessed():
+    body = _stamped_client(lambda: {"jira": SYNCED}).post(
+        "/query", json={"query": "q"}, headers=as_user(1)).json()
+    assert body["citations"][0]["as_of"] is None
+
+
+def test_a_failing_lookup_costs_nobody_their_answer():
+    """last_synced() swallows its own errors, so the stamp is best effort by construction;
+    this pins that the API does not depend on it succeeding."""
+    body = _stamped_client(lambda: {}).post("/query", json={"query": "q"}, headers=as_user(1)).json()
+    assert body["text"] == "45 days." and body["citations"][0]["as_of"] is None
+
+
+def test_a_refusal_is_never_stamped_and_never_asks():
+    asked = []
+    r = _stamped_client(
+        lambda: asked.append(1) or {"confluence": SYNCED},
+        retrieval=lambda s: {"hop_count": 1, "permission_conflicts": [PermConflict(
+            document_id=2, source_platform="confluence", source_ref="COMPLIANCE/aml-escalation",
+            sensitivity="restricted", score_margin=0.2)]},
+    ).post("/query", json={"query": "q"}, headers=as_user(1))
+    assert r.json() == {"text": GENERIC_REFUSAL, "citations": [], "trace": []}
+    assert not asked, "§5: a refusal carries nothing, and nothing here may add to it"
+
+
+def test_a_cache_hit_reports_the_sync_as_it_is_now_not_as_it_was_filed():
+    from src.cache import CacheEntry
+    from src.graph.state import AskerResponse
+
+    old = _citation().model_copy(update={"as_of": datetime(2026, 1, 1, tzinfo=UTC)})
+    entry = CacheEntry(vector=[], fingerprint="f", response=AskerResponse(text="45 days.", citations=[old]),
+                       stored_at=datetime.now(UTC))
+
+    class Hits:
+        def fingerprint(self, user):
+            return "f"
+
+        def lookup(self, query, user, *, fingerprint=None):
+            return entry
+
+    app = create_app(nodes=_nodes(), user_loader=lambda uid: ALEX, cache=Hits(),
+                     synced_at=lambda: {"confluence": SYNCED})
+    body = TestClient(app).post("/query", json={"query": "q"}, headers=as_user(1)).json()
+    assert body["citations"][0]["as_of"] == "2026-10-05T09:30:00Z"
 
 
 # --- /query rate limiting -------------------------------------------------------

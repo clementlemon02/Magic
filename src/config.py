@@ -49,6 +49,18 @@ class Settings(BaseSettings):
     # corpus that needs a second hop to answer, lowering this starts refusing them instead.
     retrieval_hop_budget_seconds: float = 2.0
     retrieval_min_score: float = 0.55  # per-model AND per-corpus; see .env.example before changing
+    # Skip the Synthesizer's model call when one retrieved sentence, unedited,
+    # already leads every other candidate on Jaccard word overlap with the query by
+    # this much. The Verifier's own fast path (a verbatim substring check, no
+    # setting of its own) then usually fires right after, so a hit here tends to
+    # skip both model calls. Measured live 30 Sep against the seeded corpus: a
+    # genuine single-sentence answer scores 0.364; the closest live miss — a
+    # sentence sharing only the question's topic nouns ("payment", "outage") but
+    # not what was actually asked ("caused") — scores 0.167; a compound question
+    # answered by only half its evidence scores 0.125. 0.25 sits with margin above
+    # both misses and below the one hit. Swept with evals/fast_path_sweep.py;
+    # re-measure if the stopword list or the corpus changes meaningfully.
+    synthesis_fast_path_min_overlap: float = 0.25
     verifier_confidence_threshold: float = 0.6
     permission_conflict_score_margin: float = 0.05
 
@@ -75,6 +87,21 @@ class Settings(BaseSettings):
     # retrieval_min_score — re-measure it if the embedding model changes.
     query_cache_enabled: bool = True
     query_cache_similarity: float = 0.93
+    # An answer older than this is never served from the cache, whatever else says it is
+    # current. The brief bounds how stale an answer may be at about an hour; this is the
+    # backstop for any change the corpus version (src/cache.py) does not see.
+    query_cache_ttl_seconds: int = 3600
+
+    # How often the server re-reads every source and reconciles documents, chunks and
+    # grants (src/ingestion/sync.py). This IS the freshness bound: an edit at a source
+    # reaches answers within one interval plus the time a sync takes. 0 turns the schedule
+    # off; `POST /admin/sync` and `python -m scripts.sync_sources` still work.
+    sync_interval_minutes: int = 10
+    # Apply the additive, idempotent schema changes at startup, so a database created
+    # before a column existed keeps working. Off in tests, which build their own schema.
+    migrate_on_startup: bool = True
+    # The mock sources' authored state (scripts/mock_source.py); relative to the repo root.
+    mock_sources_path: str = ".mock_sources.json"
 
     # Cosine floor for grouping unanswered questions into one knowledge gap.
     # Per-model, like retrieval_min_score.

@@ -9,6 +9,8 @@
 </head>
 <body>
 
+<a class="skip" href="#main">Skip to content</a>
+
 <header class="bar">
   <span class="brand"><span class="dot"></span>Internal Brain <small>Aurelia</small></span>
   <nav>
@@ -21,15 +23,15 @@
   <button class="icon-button" id="theme" type="button" aria-label="Switch theme" title="Switch theme">◐</button>
 </header>
 
-<main class="page wide">
+<main class="page wide" id="main" tabindex="-1">
   <h1>Gaps</h1>
   <p class="lede">Two halves of the same question, counted from the same audit log.</p>
 
   <div class="panel">
     <div class="controls">
-      <div role="tablist" aria-label="Report" style="display:flex;gap:6px">
-        <button class="ghost" id="tab-access" role="tab" aria-selected="true" type="button">Access gaps</button>
-        <button class="ghost" id="tab-knowledge" role="tab" aria-selected="false" type="button">Knowledge gaps</button>
+      <div role="group" aria-label="Report" style="display:flex;gap:6px">
+        <button class="ghost" id="tab-access" aria-pressed="true" type="button">Access gaps</button>
+        <button class="ghost" id="tab-knowledge" aria-pressed="false" type="button">Knowledge gaps</button>
       </div>
       <div>
         <label class="label" for="days">Days</label>
@@ -44,7 +46,8 @@
     <p class="lede" id="blurb" style="margin:16px 0 0;font-size:14px"></p>
   </div>
 
-  <section class="result" id="out" aria-live="polite"></section>
+  <section class="result" id="out"></section>
+  <div class="sr" id="announce" role="status"></div>
 </main>
 
 <script>
@@ -54,6 +57,8 @@ if (!IB.start()) { throw new Error("signed out"); }
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) =>
   ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
+
+const announce = (text) => { $("announce").textContent = text; };
 
 const VIEWS = {
   access: {
@@ -101,7 +106,7 @@ function queriesCell(list, key) {
   const more = list.length - shown.length;
   return `<ul class="queries">${shown.map((q) => `<li>${esc(q)}</li>`).join("")}</ul>` +
     (more > 0 || open
-      ? `<button class="row-toggle" type="button" data-key="${esc(key)}"
+      ? `<button class="row-toggle" type="button" data-key="${esc(key)}" aria-expanded="${open}"
            style="margin-top:6px;font:500 12px var(--mono);color:var(--accent)">
            ${open ? "Show less" : `+${more} more`}</button>`
       : "");
@@ -144,8 +149,8 @@ function render() {
 
   const head = config.columns.map((c) =>
     c.sortable
-      ? `<th class="sortable" data-sort="${c.key}"
-           ${sortKey === c.key ? 'aria-sort="descending"' : ""}>${c.head} ↓</th>`
+      ? `<th ${sortKey === c.key ? 'aria-sort="descending"' : ""}>
+           <button class="sort" type="button" data-sort="${c.key}">${c.head} <span aria-hidden="true">↓</span></button></th>`
       : `<th>${c.head}</th>`).join("");
 
   return `<div class="table-wrap"><table>
@@ -157,6 +162,7 @@ async function load() {
   $("out").innerHTML = `<div class="note">Loading${
     view === "knowledge" ? ". Clustering refusals and naming each topic takes a few seconds." : "…"}</div>`;
   $("scanned").hidden = true;
+  announce("Loading");
 
   let response;
   try {
@@ -166,6 +172,7 @@ async function load() {
     $("out").innerHTML = `<div class="note alert"><b>Cannot reach the API.</b>
       Start the server with <code>uvicorn src.api.main:app --port 8000</code>.
       ${esc(error.message)}</div>`;
+    announce("Cannot reach the API.");
     return;
   }
 
@@ -175,11 +182,13 @@ async function load() {
     $("out").innerHTML = `<div class="note alert"><b>This page is for a compliance officer.</b> These reports are built from what people were refused, and the access-gap half names restricted documents and who wanted them. You are signed in as user ${esc(IB.active())}, who is not one —
   pick that identity in the header, or <b>Add identity</b> if you are not holding it
   yet. Adding one never switches you on its own.</div>`;
+    announce("This page is for a compliance officer.");
     return;
   }
   if (!response.ok) {
     const detail = (await response.json().catch(() => ({}))).detail || "";
     $("out").innerHTML = `<div class="note alert"><b>HTTP ${response.status}.</b> ${esc(detail)}</div>`;
+    announce(`The report failed to load: HTTP ${response.status}.`);
     return;
   }
 
@@ -191,22 +200,30 @@ async function load() {
   $("scanned").hidden = false;
   $("out").innerHTML = render() +
     `<p class="foot">Since ${esc(new Date(report.since).toLocaleString())}.</p>`;
+  announce(`${rows.length} ${view === "access" ? "documents people were refused" : "unanswered topics"}, ` +
+    `${report.refusals_scanned} refusals scanned`);
 }
 
 function select(next) {
   view = next;
   $("blurb").innerHTML = VIEWS[next].blurb;
   for (const name of Object.keys(VIEWS)) {
-    $(`tab-${name}`).setAttribute("aria-selected", String(name === next));
+    $(`tab-${name}`).setAttribute("aria-pressed", String(name === next));
   }
   load();
 }
 
+// The table is redrawn on every sort and every expand, which destroys the button the keyboard
+// was on. Put it back, or each keypress would send the next Tab to the top of the page.
+const refocus = (selector, match) =>
+  [...$("out").querySelectorAll(selector)].find(match)?.focus();
+
 $("out").addEventListener("click", (e) => {
-  const sort = e.target.closest("th.sortable");
+  const sort = e.target.closest("button.sort");
   if (sort) {
     sortKey = sort.dataset.sort;
     $("out").innerHTML = render() + ($("out").querySelector(".foot")?.outerHTML || "");
+    refocus("button.sort", (b) => b.dataset.sort === sortKey);
     return;
   }
   const toggle = e.target.closest(".row-toggle");
@@ -215,6 +232,7 @@ $("out").addEventListener("click", (e) => {
     expanded.has(key) ? expanded.delete(key) : expanded.add(key);
     const foot = $("out").querySelector(".foot")?.outerHTML || "";
     $("out").innerHTML = render() + foot;
+    refocus(".row-toggle", (b) => b.dataset.key === key);
   }
 });
 

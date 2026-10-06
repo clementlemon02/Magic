@@ -21,6 +21,7 @@ from pydantic import BaseModel
 from src.agents import audit
 from src.agents.access_gap import AccessGapReport, run_access_gap_scan
 from src.agents.knowledge_gap import GapReport, run_knowledge_gap_scan
+from src.config import get_settings
 from src.graph.state import (
     AuditEvent,
     ComplianceExplanation,
@@ -29,6 +30,7 @@ from src.graph.state import (
     UserContext,
     VerificationResult,
 )
+from src.ingestion.sync import SyncReport, sync_sources
 
 COMPLIANCE_ROLE = "compliance"
 
@@ -53,6 +55,9 @@ class RequestSummary(BaseModel):
     request_id: str
     at: datetime
     user_id: int | None
+    # Who, by name: an officer reading a worklist should not have to remember that user 7 is
+    # Priya. None for a user since deleted from the table.
+    user_name: str | None = None
     query: str
     route: str | None
     escalated: bool
@@ -68,6 +73,13 @@ class SourceStatus(BaseModel):
     restricted: int
     grants: int
     last_ingested: datetime | None
+    # Freshness (src/ingestion/sync.py). `last_synced` is the last run that SUCCEEDED;
+    # `last_error` is set when the most recent attempt failed, so a source that has been
+    # failing for hours does not read as healthy because of an old success.
+    last_synced: datetime | None = None
+    last_error: str | None = None
+    # Past twice the sync interval (a day when the schedule is off), or never synced.
+    stale: bool = True
 
 
 class Grant(BaseModel):
@@ -96,6 +108,14 @@ SOURCES_SQL = """
     LEFT JOIN document_chunks AS c ON c.document_id = d.id
     GROUP BY d.source_platform
     ORDER BY d.source_platform
+"""
+
+SYNC_STATUS_SQL = """
+    SELECT source_platform,
+           max(finished_at) FILTER (WHERE error IS NULL)    AS last_synced,
+           (array_agg(error ORDER BY finished_at DESC))[1]  AS last_error
+    FROM source_syncs
+    GROUP BY source_platform
 """
 
 GRANT_COUNTS_SQL = """
@@ -155,14 +175,22 @@ def _explanation_from(request_id: str, events: list[AuditEvent]) -> ComplianceEx
 
 
 def build_router(
-    user_loader: Callable, connect: Callable = audit._connect, *, officer: Callable | None = None
+    user_loader: Callable,
+    connect: Callable = audit._connect,
+    *,
+    officer: Callable | None = None,
+    sync: Callable | None = None,
 ) -> APIRouter:
     """`officer` comes from src/api/auth.py, so one place decides who an officer is.
 
     The fallback below exists only for a caller that builds this router on its own;
-    create_app always passes the real one.
+    create_app always passes the real one. `sync(trigger, user_id)` runs the source sync.
     """
     router = APIRouter()
+
+    if sync is None:  # pragma: no cover - create_app always supplies it
+        def sync(trigger: str, user_id: int | None = None):
+            return sync_sources(connect=connect, trigger=trigger, user_id=user_id)
 
     if officer is None:  # pragma: no cover - create_app always supplies it
         from src.api.auth import build_dependencies
@@ -184,18 +212,23 @@ def build_router(
         limit: int = 100,
         outcome: str = "all",
         q: str = Query(default="", max_length=200),
+        # The brief's inquiry, "everything user jdoe accessed related to the payment-gateway
+        # space": `user` is an id or part of a name or email, `document` is part of
+        # "platform:ref" (so `confluence:SUPPORT/` is a whole space), `days` is the window.
+        asker: str = Query(default="", alias="user", max_length=100),
+        document: str = Query(default="", max_length=200),
         user: UserContext = Depends(officer),
     ):
         # Declared before /audit/{request_id}: FastAPI matches in order, and "recent"
         # would otherwise be taken for a request id and 422 on the UUID parse.
         #
-        # `outcome` and `q` narrow in SQL, before the limit — see recent_requests. A
-        # page that filtered its own fetched window would report "12 refusals" when
-        # the window held 12 of 122.
+        # `outcome`, `q`, `user` and `document` narrow in SQL, before the limit — see
+        # recent_requests. A page that filtered its own fetched window would report
+        # "12 refusals" when the window held 12 of 122.
         since = datetime.now(UTC) - timedelta(days=days)
         rows = await run_in_threadpool(
             partial(audit.recent_requests, since, limit=min(limit, 500),
-                    outcome=outcome, q=q, connect=connect)
+                    outcome=outcome, q=q, user=asker, document=document, connect=connect)
         )
         return [RequestSummary(**row) for row in rows]
 
@@ -226,16 +259,30 @@ def build_router(
             with connect() as conn:
                 rows = conn.execute(SOURCES_SQL).fetchall()
                 counts = dict(conn.execute(GRANT_COUNTS_SQL).fetchall())
-            return [
-                SourceStatus(
+                synced = {p: (at, err) for p, at, err in conn.execute(SYNC_STATUS_SQL).fetchall()}
+            interval = get_settings().sync_interval_minutes
+            bound = timedelta(minutes=2 * interval) if interval else timedelta(hours=24)
+            now = datetime.now(UTC)
+            statuses = []
+            for platform, documents, chunks, restricted, last_ingested in rows:
+                last_synced, last_error = synced.get(platform, (None, None))
+                statuses.append(SourceStatus(
                     platform=platform, documents=documents, chunks=chunks,
                     restricted=restricted, grants=counts.get(platform, 0),
-                    last_ingested=last_ingested,
-                )
-                for platform, documents, chunks, restricted, last_ingested in rows
-            ]
+                    last_ingested=last_ingested, last_synced=last_synced,
+                    last_error=last_error,
+                    stale=last_synced is None or now - last_synced > bound,
+                ))
+            return statuses
 
         return await run_in_threadpool(read)
+
+    @router.post("/admin/sync", response_model=list[SyncReport])
+    async def sync_now(user: UserContext = Depends(officer)):
+        # Re-reads every source and reconciles the mirror now, rather than at the next
+        # scheduled run. Counts only in the reply; the sync itself is on the audit chain,
+        # attributed to this officer (src/ingestion/sync.py).
+        return await run_in_threadpool(sync, "manual", user.id)
 
     @router.get("/admin/permissions", response_model=list[Grant])
     async def grants(user_id: int, user: UserContext = Depends(officer)):

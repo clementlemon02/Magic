@@ -150,6 +150,21 @@ less:
   and only used by the offline eval harness, which is not deadline-bound.
   The live system keeps the slower-to-improve, but timing-safe, behavior.
   (Full reasoning in `src/agents/verifier.py`, `_recheck_each_passage`.)
+- A third deterministic check skips the model calls entirely, not just their
+  verdict: when the Synthesizer's answer is a verbatim substring of one
+  ACL-filtered passage, that is a stronger grounding proof than an LLM's
+  opinion, not an approximation of one — every word and figure in it is
+  provably permitted evidence. On the question that motivated this ("How long
+  do customers have to contest a chargeback?"), it cut that request from 5.01s
+  to 0.50s with a byte-identical answer. Guarded against two measured failure
+  modes before shipping: plain word-overlap picked a sentence that restated
+  the question's topic but not its answer (fixed by scoring Jaccard similarity
+  instead of recall), and a compound question could be answered from only half
+  its evidence and still score as confidently as a genuine single-answer hit
+  (fixed by excluding compound queries structurally, not by threshold).
+  Multi-document and compound answers are unaffected and still run the full
+  Synthesizer-plus-Verifier pipeline (~5-6s). (`src/agents/synthesizer.py`,
+  `_extractive_answer`; `src/agents/verifier.py`, `_verbatim_chunk`.)
 
 ### Business Value — measured, not asserted
 
@@ -163,6 +178,7 @@ less:
 | Adversarial probe | 6/6 hostile/injection refused, 0 leaks, 0 existence disclosures, 2/2 controls still answered | `evals/adversarial_probe.py` |
 | Prompt injection resisted | 3/3 | `evals/run.py` |
 | End-to-end latency | median 3.4s (PRD target ~6s) | same |
+| Single-passage near-literal answer | 5.01s → 0.50s on the live question that prompted this (10x), byte-identical answer; multi-doc/compound answers unaffected | live server, this session; `evals/fast_path_sweep.py` for the safety sweep |
 | Test coverage | 310 passed unit (8 skipped without a DB), 318 with the database | `pytest`, `RUN_DATABASE_INTEGRATION=1 pytest` |
 | Audit chain integrity | verified against the live table (not synthetic rows): tamper a row → flagged at that exact id → restore → clean, over 1700+ rows | `python -m src.agents.audit verify` |
 

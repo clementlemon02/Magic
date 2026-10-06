@@ -78,3 +78,25 @@ def source_denies(user: UserContext, platform: str, source_ref: str) -> bool:
         return not connector.check_access(user, item)
     except Exception:
         return True
+
+
+def is_restricted(platform: str, source_ref: str) -> bool:
+    """Does the SOURCE hold this item as restricted? True when it cannot say.
+
+    Used to keep answers built on restricted material out of the answer cache. A cache hit
+    never reaches `source_denies`, so an answer cached before the source narrowed a
+    restricted document's ACL would be served after it, until the next sync: exactly the
+    window the query-time recheck exists to close. Such answers take the full path every
+    time instead.
+
+    Mirrors `source_denies`: a platform with no connector (`internal`, and the SQL tool's
+    citations) has nothing upstream to ask, so False; an item its connector no longer
+    lists, or any failure, is True.
+    """
+    try:
+        if connectors().get(platform) is None:
+            return False
+        item = source_item(platform, source_ref)
+        return item is None or item.sensitivity == "restricted"
+    except Exception:
+        return True

@@ -119,12 +119,21 @@ incomplete review.
 - **Never widen this to cover probing or injection.** A hostile question about company material routes
   `rag` and meets the §1 predicate and the Verifier like any other, ending in `GENERIC_REFUSAL`; moving
   that judgement into a prompt would make access control a prompt instruction, which §1 forbids.
-  Measured in `evals/adversarial_probe.py`: hostile 6/6 refused, off-piste 5/5 declined, 0 content
-  leaks, 0 existence disclosures.
+  Measured in `evals/adversarial_probe.py`: hostile 7/7 refused, off-piste 7/7 declined, controls 3/3
+  answered, 0 content leaks, 0 existence disclosures.
 - Two distinguishable asker-facing replies is safe here and only here, because the Router picks
   `decline` from the query TEXT alone — before retrieval, before any permission check — so it carries
   nothing about the corpus or the caller's access. `_answer_node` checks it BELOW the escalation
   branch, which is what makes that true rather than merely likely.
+- **Questions about the assistant itself are the one thing decided without a model** (`is_about_the_assistant`,
+  `ABOUT_THE_ASSISTANT`): a fixed set of identity and capability phrasings ("what can you do", "who are you",
+  "help"), matched against the WHOLE message after normalisation and an optional greeting prefix. Measured:
+  qwen2.5:7b answered YES to `is_off_piste` for "What can you do?" and "Who are you?", both NO examples in its own
+  prompt, so the likeliest first questions of a demo reached Clarification and were asked "which document?".
+  It is safe for the reason `decline` is safe: it reads the query text alone, before retrieval and before any
+  permission check. It cannot swallow a company question because only a whole-message match counts, and a test
+  asserts it matches nothing in `evals/cases.py`. **Don't grow it into a classifier.** A paraphrase outside it falls
+  back to the old behaviour, which is mildly unhelpful and never unsafe.
 - The distilled student needs no retraining: it cannot emit `decline`, and never has to. It routes
   off-piste text to `clarify` or below the confidence gate, and the teacher's `clarify` verdict is the
   only door to `is_off_piste`. Student confidence is NOT usable as that door — measured, the two
@@ -145,7 +154,7 @@ incomplete review.
   restricted chunk scores `PERMISSION_CONFLICT_SCORE_MARGIN` above the top filtered result — id + owning
   source only, never content. Reformulates and re-runs while `hop_count < RETRIEVAL_MAX_HOPS` and the
   Verifier reports insufficient grounding.
-- `acl_tags` and `permissions` are a MIRROR of each source's ACLs, fresh only as of the last ingest.
+- `acl_tags` and `permissions` are a MIRROR of each source's ACLs, fresh only as of the last sync (see Source sync).
   `drop_source_revoked` closes that window by asking the connector at query time, for **restricted**
   documents only (`SOURCE_RECHECK_ENABLED`). Fails closed; a drop is recorded as `source_recheck_denied`,
   identity only. Rules and rationale in `src/connectors/__init__.py`.
@@ -163,9 +172,35 @@ incomplete review.
   reach outside it. `INSUFFICIENT` and "no permitted evidence" both yield `draft_answer=None`,
   which the Verifier reports as ungrounded — so the hop loop and Escalation stay the only exits.
 - Runs strictly after the permission-conflict check: restricted content never enters its prompt.
+- **Skips its own model call too, when one retrieved sentence already answers the question,
+  unedited — `_extractive_answer`.** Scored by Jaccard against the query, not plain recall: recall
+  let a sentence win by restating the question's topic words without answering it. Live: "What
+  caused the payment outage?" ranked "Payment outage ENG-4471 lasted 47 minutes... graded SEV1"
+  (shares "payment", "outage") above the sentence that actually answers it, "The root cause was an
+  expired TLS certificate..." (shares nothing lexically — it never restates the subject). Jaccard
+  divides by the union, so a sentence's own unrelated words count against it too: that wrong
+  sentence scores 0.167, a genuine live hit scores 0.364. Fires only when the winner clearly leads
+  every other candidate — a tie decides nothing — and never on a compound query (`_looks_compound`,
+  one check for "and"/"or"): a sentence answering HALF a two-part question can score AT OR ABOVE a
+  genuine single-answer hit depending only on phrasing (measured both live and in
+  `evals/cases.py`), so the query itself is checked, not just the score. `SYNTHESIS_FAST_PATH_MIN_OVERLAP`
+  (0.25) sits with margin above the highest measured miss (0.167) and below the lowest measured hit
+  (0.364); swept in `evals/fast_path_sweep.py`. The returned text is verbatim from one ACL-filtered
+  chunk, which is what lets the Verifier's own fast path below usually find it and skip its call
+  too — together, on the live question that prompted this, they took the request from 5.01s to
+  0.50s with a byte-identical answer.
 
 ### Verifier / Critic — `src/agents/verifier.py`
 - In: `draft_answer`, `retrieved_chunks`, `citations`. Out: `verification`.
+- **Skips the judge entirely when the answer is already a verbatim substring of one cited passage
+  — `_verbatim_chunk`, no threshold of its own.** Stronger than the judge's opinion: if the
+  answer's own characters sit inside one ACL-filtered chunk, every word and figure in it is
+  PROVABLY permitted evidence, not a 7B model's guess that it probably is — so `unsupported_quantities`
+  is redundant here rather than merely skipped, since no figure in a substring can be absent from
+  its own superstring. A changed number, an added "Yes"/"No", or any paraphrase all fail the check
+  and fall through to the judge unchanged: this only ever catches the unambiguous case. Never
+  applied when `sql_result` is set — a mixed answer restates a number nothing here would literally
+  contain, so it is judged as before.
 - Judges against the CITED passages only (`cited_chunks`), not everything retrieved: the
   prompt is prefill-bound, so six passages when the answer used one is slower for nothing.
   Safe by construction — every chunk is already ACL-filtered, so a smaller set of permitted
@@ -205,10 +240,20 @@ incomplete review.
   so every hop of a multi-hop request is on the record with its own timestamp and duration. A summary
   of the finished request follows those rows. `request_id`-keyed. `GET /audit/{request_id}` is the only
   path that can read `explanation` back out; `GET /audit/recent` lists requests for an officer to work
-  through, and both are role-gated. It takes `outcome` (all | refused | answered | declined) and
-  `q`, and both narrow **in SQL, above the LIMIT** — filtering an already-fetched window would
-  report "12 refusals" when the window held 12 of 122. An unknown `outcome` falls back to `all`:
-  a typo must never silently hide rows from an audit surface.
+  through, and both are role-gated. It takes `outcome` (all | refused | answered | declined), `q`,
+  `user` and `document`, and all four narrow **in SQL, above the LIMIT** — filtering an already-fetched
+  window would report "12 refusals" when the window held 12 of 122. An unknown `outcome` falls back to
+  `all`: a typo must never silently hide rows from an audit surface.
+- **The brief's inquiry** ("everything user jdoe accessed related to the payment-gateway space in the last
+  30 days") is `days` + `user` + `document` together. `user` is an id, or a fragment of a name or email (all
+  digits is an id and nothing else). `document` is a fragment of `platform:ref`, so `confluence:SUPPORT/`
+  is a whole space. A request NAMES a document four ways: a citation on its answer, a `retrieval` event,
+  a `permission_conflict`, a `source_recheck_denied`. Matching is on those extracted refs, **never on payload
+  text**, so an answer that merely mentions a document has not touched it. Compose with `outcome` for
+  "what was turned away at that space".
+- The `retrieval` event records `sources` (`platform:ref`) as well as `document_ids`. An id only means a row in
+  the corpus as it was, since reseeding restarts the sequence; the name is what an officer can still ask about
+  later. Rows written before this carry ids only, and are found through their citations and conflicts.
 
 ### SQL Tool — `src/agents/sql_tool.py`
 - In: `query`, `user`. Out: `sql_result`.
@@ -254,6 +299,36 @@ class SourceConnector(Protocol):
 `acl_tags` written to `document_chunks` — never cached as the authorization decision itself (§1) — and
 again at query time for restricted documents, via `source_denies`, to close the mirror's staleness
 window. `src/connectors/__init__.py` holds the one platform → connector registry; don't build another.
+
+### Source sync — `src/ingestion/sync.py`
+- Keeps the mirror (`documents`, `document_chunks`, `permissions`) in step with the sources: on a schedule
+  (`SYNC_INTERVAL_MINUTES`, default 10, 0 = off), on `POST /admin/sync` (officer; the Sources page's "Sync now")
+  and from `python -m scripts.sync_sources`. `scripts/seed_demo.py` now loads through the same code.
+- **The freshness bound is one interval plus the time a sync takes** (the brief asks for minutes to ~1 hour).
+  Restricted documents are tighter: the query-time recheck asks the source on every request, so narrowing one
+  takes effect with no sync at all.
+- Per platform, ONE transaction: advisory lock (or skip) → list the source and read the mirror → plan
+  (add / rewrite / retag / remove, by content hash) → embed only what changed → apply → reconcile grants →
+  bump `corpus_state.epoch` → a `source_syncs` row, and a `source_sync` audit event when something moved.
+  Any failure rolls that platform back and is recorded; a source that cannot be listed is never read as
+  "everything was deleted". `make_plan` and `grant_changes` are pure and carry the decisions.
+- **Grants are asymmetric on purpose.** The source is authoritative, so a live grant it no longer backs is
+  revoked (`revoked_by = 'source'`). A grant it backs is restored only if a SYNC took it away: an officer's
+  revoke (`revoked_by IS NULL`) stands. A sync cannot widen access past §1, which needs tag overlap AND a live grant.
+- **The answer cache is invalidated by the epoch**, which is part of its fingerprint and read from the
+  database, so a sync in another process empties this one's cache too. An answer is filed under the fingerprint
+  taken BEFORE the graph ran (`/query` passes it to `put`). **Answers that cite a restricted document are never
+  cached** (`is_restricted`): a cache hit never reaches the source recheck, so a cached one would outlive
+  a revocation. `QUERY_CACHE_TTL_SECONDS` is the backstop for anything the epoch cannot see.
+- Citations carry `as_of`, when their source last synced, stamped in `/query` and never by retrieval.
+  The Ask page turns it into a warning past an hour. A refusal has no citations, so it cannot carry one (§5).
+- A document row with no `content_hash` (older than the column) counts as changed, so the first sync after an
+  upgrade re-embeds once and cannot miss an edit. `src/db/migrate.py` applies the additive schema changes at
+  startup (`MIGRATE_ON_STARTUP`); `schema.sql` is still what a fresh database gets.
+- The mock sources can be edited: `python -m scripts.mock_source edit|access|delete|restore|reset` writes
+  `.mock_sources.json` (`MOCK_SOURCES_PATH`), which every mock connector reads through `src/connectors/overlay.py`.
+  `python -m evals.freshness_probe --yes` is the end-to-end check (needs a server and Ollama, and edits sources
+  while it runs, so never against an instance someone is presenting from).
 
 ## 4a. Authentication — `src/api/auth.py`
 
@@ -309,6 +384,10 @@ allowed to differ from `GENERIC_REFUSAL` — it is chosen from the query text be
 check — but the two must not drift together: a refusal that reads like a scope message, or a scope
 message that hints at withheld material, would give back the distinction §5 exists to remove.
 
+The Ask page states what refusals do with timing, and that is only true of the server it is served from, so
+`create_app` records the deadline `/query` actually enforces in `app.state.refusal_hold` (0 = no hold), the UI router
+injects it into the page, and the page never hardcodes one. With the hold off it says timing is not defended rather than claiming a deadline it is not holding.
+
 `state.explanation` must never appear in an `AskerResponse`. If you're tempted to add detail to the
 asker-facing refusal "to be more helpful," don't — that's the exact failure mode the brief's negative
 case tests for.
@@ -334,10 +413,30 @@ and flags the first row whose `row_hash` doesn't match (`python -m src.agents.au
 - Env vars: `SCREAMING_SNAKE_CASE`, declared in `.env.example` before use, never hardcoded.
 - API routes: `POST /auth/login`, `GET /auth/me`, `POST /query`, `GET /audit/{request_id}`,
   `GET /audit/recent`, `GET /audit/verify`, `GET /knowledge-gaps`, `GET /access-gaps`,
-  `GET /admin/sources`, `GET /admin/permissions`, admin revoke under
+  `GET /admin/sources`, `POST /admin/sync`, `GET /admin/permissions`, admin revoke under
   `POST /admin/permissions/revoke`. Pages: `/` ask, `/dashboard` gaps, `/audit`, `/sources`.
 - Prompt constants: `PROMPT_TEMPLATE` (module-level, in the agent's own file), examples in
   `<agent>_examples.py` as `EXAMPLES`.
+
+## 7a. UI accessibility
+
+The four pages are held to WCAG 2.2 AA, and that was measured rather than eyeballed: axe-core on every page in
+both themes, a contrast sweep of every visible text node (axe leaves it "incomplete" under sticky overlays), and a
+375px reflow check. `tests/test_a11y.py` pins what that found, so the same bugs cannot quietly return.
+
+- **Colour tokens**: every text token reaches 4.5:1 on `--ground`, `--surface` and `--raised`, in both palettes. The
+  test computes it; change a token, run the test. (`--faint` was 4.0:1 in dark mode, on every page.)
+- **Never dim text with `opacity`.** It multiplies the contrast away (a revoked grant was 2.2:1, a locked link 2.9:1).
+  Say a state with a colour that passes, plus words.
+- **Segmented controls are `aria-pressed` buttons in a labelled `group`**, not `role="tab"`: tabs promise arrow keys
+  and a tabpanel that these never had.
+- **Anything that redraws itself with `innerHTML` hands focus back** to the control the keyboard was on, and a busy
+  control uses `aria-disabled`, not `disabled` (which drops focus). Sorting, expanding, picking a row, Sync now.
+- **Failures are `role="alert"`, results are `role="status"`.** Don't put a redrawn table in a live region; announce
+  the outcome instead. Repeated controls say which item they act on (`aria-label="Revoke confluence:…"`).
+- **No single-key shortcuts**, and every page opens with a skip link to `<main id="main">`.
+- **Reflow at 320px**: the app bar wraps, no inline width over a phone, and a wide data table scrolls inside its own
+  `.table-wrap` rather than the page.
 
 ## 8. Workstream ownership
 

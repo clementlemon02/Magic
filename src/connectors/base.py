@@ -5,6 +5,7 @@ to ACL tags for search metadata; request-time authorization is always rechecked
 against the live permissions table.
 """
 
+from datetime import datetime
 from typing import Annotated, Literal, Protocol, runtime_checkable
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -23,6 +24,10 @@ class SourceItem(BaseModel):
     content: str
     dept: str
     sensitivity: Sensitivity
+    # When the SOURCE says this last changed, if it says. Informational: change detection
+    # compares content, because a timestamp can lie in both directions (a restore keeps the
+    # old one, a touch moves it without a change), and a missed edit is the failure here.
+    updated_at: datetime | None = None
 
 
 class ConfluencePermission(BaseModel):

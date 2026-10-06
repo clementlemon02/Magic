@@ -9,6 +9,8 @@
 </head>
 <body>
 
+<a class="skip" href="#main">Skip to content</a>
+
 <header class="bar">
   <span class="brand"><span class="dot"></span>Internal Brain <small>Aurelia</small></span>
   <nav>
@@ -21,7 +23,7 @@
   <button class="icon-button" id="theme" type="button" aria-label="Switch theme" title="Switch theme">◐</button>
 </header>
 
-<main class="page">
+<main class="page" id="main" tabindex="-1">
   <h1>Ask</h1>
   <p class="lede">Confluence, Jira, Slack and Drive, in one question. You only ever see
     what your own permissions allow — the filter runs in the database, before any of it
@@ -32,12 +34,12 @@
 
   <div class="composer">
     <form class="panel" id="form">
-      <textarea id="q" name="q" rows="2" spellcheck="false"
+      <textarea id="q" name="q" rows="2" spellcheck="false" aria-label="Your question"
         placeholder="Ask anything — try &quot;What triggers an AML escalation review?&quot;"></textarea>
       <div class="controls">
-        <div class="mode" role="tablist" aria-label="Who asks">
-          <button id="mode-one" type="button" role="tab" aria-selected="true">One caller</button>
-          <button id="mode-two" type="button" role="tab" aria-selected="false">Side by side</button>
+        <div class="mode" role="group" aria-label="Who asks">
+          <button id="mode-one" type="button" aria-pressed="true">One caller</button>
+          <button id="mode-two" type="button" aria-pressed="false">Side by side</button>
         </div>
         <span class="asking" id="asking"></span>
         <button id="go" type="submit">Ask</button>
@@ -225,6 +227,21 @@ function highlightAcl(sql) {
     line.includes("acl_tags") ? `<span class="acl">${line}</span>` : line).join("\n");
 }
 
+// "Never silently stale" (brief scenario 2): each source says when the mirror last caught up
+// with it. Past the brief's own outer bound of an hour it is drawn as a warning, because a
+// sync that has quietly stopped is exactly how an answer ends up stale without saying so.
+function syncedNote(iso) {
+  const minutes = Math.max(0, Math.round((Date.now() - new Date(iso)) / 60000));
+  const age = minutes < 1 ? "just now" : minutes < 60 ? `${minutes} min ago`
+    : minutes < 2880 ? `${Math.round(minutes / 60)}h ago` : `${Math.round(minutes / 1440)} days ago`;
+  const old = minutes > 60;
+  return `<span class="synced" style="font:400 11.5px var(--mono);white-space:nowrap;color:var(--${
+    old ? "caution" : "muted"})" title="When the mirror last caught up with this source">${
+    old ? "may be out of date · " : ""}synced ${age}</span>`;
+}
+
+let evidenceSeq = 0;  // unique per rendered citation, so aria-controls can point at its own box
+
 function renderAnswer(reply, seconds, { bare = false } = {}) {
   // `bare` is the side-by-side column: the scale above it already carries the
   // timing, and the explanation is stated once under both columns instead of twice.
@@ -236,17 +253,19 @@ function renderAnswer(reply, seconds, { bare = false } = {}) {
       <span class="section">Sources</span>
       ${reply.citations.map((c) => {
         const evidence = c.passage || c.query;
+        const eid = `evidence-${++evidenceSeq}`;
         return `
         <div class="source">
           <span class="ref"><span class="plat">${esc(c.source_platform)}:</span>${esc(c.source_ref)}</span>
           <span class="title">${esc(c.title)}</span>
+          ${c.as_of ? syncedNote(c.as_of) : ""}
           <span class="actions">
-            ${evidence ? `<button class="copy" type="button" data-peek>Show ${
+            ${evidence ? `<button class="copy" type="button" data-peek aria-expanded="false" aria-controls="${eid}">Show ${
               c.query ? "query" : "passage"}</button>` : ""}
             <button class="copy" type="button" data-ref="${esc(c.source_platform)}:${esc(c.source_ref)}">Copy</button>
           </span>
         </div>
-        ${evidence ? `<div class="evidence" hidden>${
+        ${evidence ? `<div class="evidence" id="${eid}" hidden>${
           c.query
             ? `<pre>${highlightAcl(c.query)}</pre>
                <p class="why">The highlighted predicate is the access control. It runs
@@ -259,22 +278,30 @@ function renderAnswer(reply, seconds, { bare = false } = {}) {
       }).join("")}
     </div>` : "";
 
-  // Timing is content here, not chrome: a refusal held to the deadline is the
-  // property that stops the clock from saying what the words won't. Claim it only
-  // when the clock agrees — a refusal that ran long escaped, and saying otherwise
-  // next to a number that contradicts it discredits the whole guarantee. The upper
-  // bound allows for the browser round-trip on top of the server's own padding.
+  // Timing is content here, not chrome. With the hold on, a refusal held to the deadline is the
+  // property that stops the clock saying what the words won't; with it off, the clock is a side
+  // channel and the page says so. Either way, claim only what the server is actually running
+  // (HOLD) and only when the number beside it agrees: a refusal that ran long escaped, and saying
+  // otherwise next to a number that contradicts it discredits the whole guarantee. The upper
+  // bound allows for the browser round-trip on top of the server's own hold.
   let held = "";
-  if (bare) {
+  if (bare || !withheld) {
     held = "";
-  } else if (withheld && seconds >= 3.9 && seconds <= 4.6) {
-    held = `<div class="note"><b>Held to the 4.0s deadline.</b> Every refusal takes the same
-      time whatever caused it, so timing this answer tells you nothing the sentence doesn't.
-      Unpadded, a permission refusal returns in about 0.9s and an unanswerable one in 4.3s —
-      enough to map what restricted material exists without ever seeing it.</div>`;
-  } else if (withheld && seconds > 4.6) {
-    held = `<div class="note"><b>This refusal ran past the 4.0s deadline.</b> Padding holds a
-      refusal until the deadline but cannot pull it back, so a slow one leaks in that single
+  } else if (HOLD === 0) {
+    held = `<div class="note"><b>Timing is not defended on this server.</b> Refusals are not held
+      to a deadline, so this one took the time it really took, ${seconds.toFixed(2)}s, and that
+      depends on why it happened: a permission refusal skips the model, an unanswerable question
+      retries retrieval first. In our baseline measurement a stopwatch named the cause of most
+      refusals (<code>evals/refusal_timing.py</code>). Closing that costs every refusal several
+      seconds, so it is a switch, <code>REFUSAL_PADDING_ENABLED</code>, and it is off here.</div>`;
+  } else if (seconds >= HOLD - 0.1 && seconds <= HOLD + 0.6) {
+    held = `<div class="note"><b>Held to the ${HOLD.toFixed(1)}s deadline.</b> Every refusal takes
+      the same time whatever caused it, so timing this answer tells you nothing the sentence
+      doesn't. Without the hold, how long a refusal takes depends on why it happened — enough, in
+      our baseline measurement, for a stopwatch to name the cause of most of them.</div>`;
+  } else if (seconds > HOLD + 0.6) {
+    held = `<div class="note"><b>This refusal ran past the ${HOLD.toFixed(1)}s deadline.</b> The hold
+      keeps a refusal until the deadline but cannot pull it back, so a slow one leaks in that single
       direction. <code>evals/refusal_timing.py</code> measures how often: 0% on an idle
       machine. A cold model load or a loaded laptop is the usual cause.</div>`;
   }
@@ -311,7 +338,11 @@ async function run(uid, query) {
   return { reply: await response.json(), seconds };
 }
 
-const DEADLINE = 4.0;
+// Whether this server holds refusals to a fixed deadline (REFUSAL_PADDING_ENABLED), and for how
+// many seconds. Injected by the server (src/api/ui.py), so the page never claims a defence the
+// server is not running. Left unsubstituted it parses to NaN, which reads as "no hold": the safe
+// direction to be wrong in.
+const HOLD = parseFloat("__REFUSAL_HOLD_SECONDS__") || 0;
 const SCALE = 8.0;
 
 function scale(seconds, withheld) {
@@ -325,9 +356,10 @@ function scale(seconds, withheld) {
       </div>
       <div class="track">
         <div class="fill" style="width:${pct}%"></div>
-        <div class="deadline" style="left:${(DEADLINE / SCALE) * 100}%"></div>
+        ${HOLD > 0 ? `<div class="deadline" style="left:${(HOLD / SCALE) * 100}%"></div>` : ""}
       </div>
-      <div class="ticks"><span>0s</span><span class="mark">${DEADLINE.toFixed(1)}s deadline</span><span>${SCALE}s</span></div>
+      <div class="ticks"><span>0s</span>${
+        HOLD > 0 ? `<span class="mark">${HOLD.toFixed(1)}s deadline</span>` : ""}<span>${SCALE}s</span></div>
     </div>`;
 }
 
@@ -358,13 +390,18 @@ function finding(a, b) {
     // Say what the clock says. Claiming the deadline held while the number beside it
     // says otherwise discredits the one property the whole project rests on — the
     // same mistake this page already made once, in renderAnswer.
-    const timing = took <= DEADLINE + 0.6
-      ? `The refusal took <b>${took.toFixed(2)}s</b>, held to the ${DEADLINE.toFixed(1)}s
-         deadline, so its timing says no more than its wording does. Without that padding a
-         permission refusal returns in about 0.9s, and timing alone would tell caller
-         ${esc(held.uid)} that something exists here.`
+    const timing = HOLD === 0
+      ? `The refusal took <b>${took.toFixed(2)}s</b>. Nothing holds refusals to a deadline on this
+         server, so that is the real time, and timing is a side channel here: how long a refusal
+         takes depends on why it happened (<code>evals/refusal_timing.py</code> measures how well
+         a stopwatch exploits that). The hold that closes it is a switch,
+         <code>REFUSAL_PADDING_ENABLED</code>, and it is off.`
+      : took <= HOLD + 0.6
+      ? `The refusal took <b>${took.toFixed(2)}s</b>, held to the ${HOLD.toFixed(1)}s
+         deadline, so its timing says no more than its wording does. Without that hold, timing
+         alone could tell caller ${esc(held.uid)} something about why they were refused.`
       : `The refusal took <b>${took.toFixed(2)}s</b> and so ran <b>past</b> the
-         ${DEADLINE.toFixed(1)}s deadline — padding holds a refusal until the deadline but
+         ${HOLD.toFixed(1)}s deadline — the hold keeps a refusal until the deadline but
          cannot pull it back, and that overshoot is the residual leak
          <code>evals/refusal_timing.py</code> measures. It reports 0% on an idle machine; a
          cold model or a loaded laptop is the usual cause.`;
@@ -374,9 +411,13 @@ function finding(a, b) {
       reached the model. ${timing}</div>`;
   }
   if (refusedA && refusedB) {
-    return `<div class="finding"><span class="lead">Both refused, and indistinguishably so.</span>
-      Byte-identical text, and ${gap}s between them — both held to the ${DEADLINE.toFixed(1)}s
-      deadline. Neither caller can tell whether an answer exists, or whether the other one got it.</div>`;
+    return HOLD === 0
+      ? `<div class="finding"><span class="lead">Both refused, with identical words.</span>
+         Byte-identical text, and ${gap}s between them. With no hold on this server that gap is
+         real, and it is a side channel: how long a refusal takes depends on why it happened.</div>`
+      : `<div class="finding"><span class="lead">Both refused, and indistinguishably so.</span>
+         Byte-identical text, and ${gap}s between them — both held to the ${HOLD.toFixed(1)}s
+         deadline. Neither caller can tell whether an answer exists, or whether the other one got it.</div>`;
   }
   return `<div class="finding"><span class="lead">Both answered.</span>
     Nothing here is restricted to either caller, so the permission filter changed nothing —
@@ -463,7 +504,7 @@ function turn(html, { mine = false } = {}) {
 async function ask() {
   const query = $("q").value.trim();
   if (!query) { $("q").focus(); return; }
-  const comparing = $("mode-two").getAttribute("aria-selected") === "true";
+  const comparing = $("mode-two").getAttribute("aria-pressed") === "true";
 
   $("go").disabled = true;
   $("q").value = "";
@@ -501,7 +542,7 @@ async function ask() {
 
 function describeIdentities() {
   const held = IB.signedIn();
-  const comparing = $("mode-two").getAttribute("aria-selected") === "true";
+  const comparing = $("mode-two").getAttribute("aria-pressed") === "true";
   $("go").textContent = comparing ? "Ask both" : "Ask";
   $("go").disabled = comparing && held.length < 2;
   $("asking").innerHTML = comparing
@@ -514,8 +555,8 @@ function describeIdentities() {
 
 for (const [id, on] of [["mode-one", false], ["mode-two", true]]) {
   $(id).addEventListener("click", () => {
-    $("mode-one").setAttribute("aria-selected", String(!on));
-    $("mode-two").setAttribute("aria-selected", String(on));
+    $("mode-one").setAttribute("aria-pressed", String(!on));
+    $("mode-two").setAttribute("aria-pressed", String(on));
     describeIdentities();
   });
 }
@@ -533,9 +574,6 @@ $("form").addEventListener("submit", (e) => { e.preventDefault(); ask(); });
 $("q").addEventListener("keydown", (e) => {
   if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); ask(); }
 });
-document.addEventListener("keydown", (e) => {
-  if (e.key === "/" && document.activeElement !== $("q")) { e.preventDefault(); $("q").focus(); }
-});
 $("thread").addEventListener("click", async (e) => {
   const peek = e.target.closest("[data-peek]");
   if (peek) {
@@ -543,6 +581,7 @@ $("thread").addEventListener("click", async (e) => {
     // thread renders citation 0, so an id would open the first turn's passage forever.
     const box = peek.closest(".source").nextElementSibling;
     box.hidden = !box.hidden;
+    peek.setAttribute("aria-expanded", String(!box.hidden));
     peek.textContent = box.hidden
       ? peek.textContent.replace("Hide", "Show")
       : peek.textContent.replace("Show", "Hide");

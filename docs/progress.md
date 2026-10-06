@@ -110,6 +110,7 @@ The test suite no longer touches demo data (fixed in #16).
 | #26 | The web UI: asker's page at `/`, both gap reports at `/dashboard` | the API has a surface; refusal vs answer visible side by side |
 | #27 | Verifier judges cited passages only; query answers skip it entirely | judge 6.80s → 2.54s; SQL path 5.7s → 1.8s |
 | #28 *(open)* | The four-page UI, CI, per-hop audit rows, startup warm-up, adversarial routing, evidence and query views, sources admin, authentication | 273 tests, CI green; refusal escapes 12.9% → 0% |
+| #31 *(open)* | `RETRIEVAL_MIN_SCORE` 0.55 → 0.65 (dropped off-topic chunks the Synthesizer read then ignored); extractive fast paths for the Synthesizer and Verifier — a near-literal single-passage answer skips both model calls entirely | one live question: 5.86s → 5.01s → **0.50s**, byte-identical answer |
 
 ## 4. Evals (all `.venv/bin/python -m evals.<name>`)
 
@@ -121,6 +122,8 @@ The test suite no longer touches demo data (fixed in #16).
 | `refusal_timing` (`--padded`) | Whether refusal timing reveals the cause | all four §12 criteria pass; 0% escape |
 | `router_student` | Distilled Router vs teacher | see #21 |
 | `confidence_calibration` | Verifier confidence: Brier, and a threshold sweep | measured 0.0982 vs self-reported 0.1360 (30 Sep; grows with `VERIFIER_CASES`) |
+| `retrieval_threshold_sweep` | Recall vs noise across `RETRIEVAL_MIN_SCORE` candidates | recall holds 0.55→0.68, breaks at 0.70; set to 0.65 |
+| `fast_path_sweep` | Synthesizer extractive shortcut: fires correctly vs fires wrong/on unanswerable | 0.25 sits above the highest measured miss (0.167), below the lowest hit (0.364) |
 | `cache_probe` | Permission-aware cache | — |
 
 ## 5. Open issues

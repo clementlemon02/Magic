@@ -146,8 +146,8 @@ def test_the_deadline_claim_is_bounded_by_the_measured_time():
     """A refusal that ran long escaped the deadline. Claiming it was held, next to a
     number that says otherwise, discredits the guarantee the product is built on."""
     page = PAGES["ask"].read_text(encoding="utf-8")
-    assert "seconds >= 3.9 && seconds <= 4.6" in page
-    assert "ran past the 4.0s deadline" in page
+    assert "seconds >= HOLD - 0.1 && seconds <= HOLD + 0.6" in page
+    assert "ran past the ${HOLD.toFixed(1)}s deadline" in page
 
 
 def test_the_audit_page_is_served_and_carries_no_trail_of_its_own():
@@ -273,8 +273,9 @@ def test_the_comparison_draws_the_deadline_to_scale():
     """A refusal landing on the deadline and an answer running past it is the whole
     property, read without a number. It has to be plotted, not asserted."""
     page = PAGES["ask"].read_text(encoding="utf-8")
-    assert "const DEADLINE = 4.0;" in page and "const SCALE = 8.0;" in page
-    assert "(DEADLINE / SCALE) * 100" in page, "the marker must sit at its true position"
+    assert 'const HOLD = parseFloat("__REFUSAL_HOLD_SECONDS__") || 0;' in page
+    assert "const SCALE = 8.0;" in page
+    assert "(HOLD / SCALE) * 100" in page, "the marker must sit at its true position"
 
 
 def test_the_shared_script_is_not_deferred():
@@ -292,7 +293,7 @@ def test_the_comparison_never_claims_a_deadline_the_clock_contradicts():
     otherwise, discredits the property the project rests on — and this page made that
     mistake twice: once in renderAnswer, once in the side-by-side copy."""
     page = PAGES["ask"].read_text(encoding="utf-8")
-    assert "took <= DEADLINE + 0.6" in page
+    assert "took <= HOLD + 0.6" in page
     assert "ran <b>past</b> the" in page
 
 
@@ -382,7 +383,8 @@ def test_changing_who_may_read_something_takes_two_clicks_and_reports_failure():
     just reset — leaving an officer unable to tell a failed revoke from a done one,
     which is the worst possible ambiguity on this particular screen."""
     page = PAGES["sources"].read_text(encoding="utf-8")
-    assert 'Revoke — confirm' in page and 'Grant — confirm' in page
+    # Built from the action name, so the label can carry WHICH grant (see test_a11y.py).
+    assert '" — confirm"' in page and "nameOf(button, true)" in page
     assert "did not go through" in page
     # Not window.confirm(): embedded views return from it at once without showing a
     # dialog, so the guard would be absent exactly where it is hardest to notice.
@@ -447,3 +449,11 @@ def test_the_audit_filters_refetch_rather_than_narrowing_what_is_loaded():
     # Every control refetches; none of them filters `requests` in place.
     assert page.count("loadList()") >= 3
     assert "requests.filter(" not in page
+
+
+def test_a_citation_on_the_ask_page_says_how_fresh_its_source_is_and_flags_an_old_one():
+    """Brief scenario 2: never silently stale. Past an hour — the brief's own outer bound —
+    the note turns into a warning, because a sync that quietly stopped is how it happens."""
+    page = PAGES["ask"].read_text(encoding="utf-8")
+    assert "c.as_of ? syncedNote(c.as_of)" in page
+    assert "may be out of date" in page and "minutes > 60" in page
