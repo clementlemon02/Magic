@@ -32,6 +32,16 @@
         <label class="label" for="days">Days</label>
         <input id="days" type="number" min="1" value="7" inputmode="numeric">
       </div>
+      <div>
+        <label class="label" for="who">User</label>
+        <input id="who" type="search" placeholder="id, name or email" style="width:150px"
+          autocomplete="off" spellcheck="false">
+      </div>
+      <div>
+        <label class="label" for="doc">Document</label>
+        <input id="doc" type="search" placeholder="confluence:SUPPORT/" style="width:190px"
+          autocomplete="off" spellcheck="false">
+      </div>
       <button id="go" type="button">Refresh</button>
       <button class="ghost" id="verify" type="button">Verify chain</button>
       <div class="mode" role="tablist" aria-label="Show which requests">
@@ -41,7 +51,7 @@
         <button id="f-declined" type="button" role="tab" aria-selected="false" data-outcome="declined">Out of scope</button>
       </div>
       <input id="search" type="search" placeholder="Search the question…" style="width:210px"
-        autocomplete="off" spellcheck="false">
+        aria-label="Search the question" autocomplete="off" spellcheck="false">
       <div class="spacer" style="margin-left:auto"></div>
       <div class="readout" id="count" hidden>
         <span class="big" id="count-n">0</span><span class="unit" id="count-unit">requests</span>
@@ -78,10 +88,17 @@ const forbidden = () => `<div class="note alert"><b>This page is for a complianc
 const TONE = { escalation: "bad", permission_conflict: "bad", source_recheck_denied: "bad",
                final_answer: "good", draft_answer: "good" };
 
+// Any filter at all, as opposed to the whole window. Used for the empty state and the count.
+function narrowed() {
+  return outcome() !== "all" || [$("search"), $("who"), $("doc")].some((i) => i.value.trim());
+}
+
 function renderList() {
-  if (!requests.length && (outcome() !== "all" || $("search").value.trim())) {
-    return `<div class="note">Nothing matches that filter in the last
-      ${esc($("days").value)} days. <b>All</b> puts everything back.</div>`;
+  if (!requests.length && narrowed()) {
+    return `<div class="note">Nothing matches those filters in the last
+      ${esc($("days").value)} days. Clear them to see everything — and note that a document
+      filter matches <span style="font-family:var(--mono)">platform:ref</span>, so
+      <span style="font-family:var(--mono)">SUPPORT/</span> alone also finds Jira's SUPPORT project.</div>`;
   }
   if (!requests.length) {
     return `<div class="note">No requests in this window. Ask something on the
@@ -92,7 +109,7 @@ function renderList() {
       aria-current="${r.request_id === current}">
       <div class="q">${esc(r.query) || "(no question recorded)"}</div>
       <div class="meta">
-        <span>user ${esc(r.user_id ?? "?")}</span>
+        <span>${r.user_name ? esc(r.user_name) : `user ${esc(r.user_id ?? "?")}`}</span>
         <span>${esc(r.route ?? "—")}</span>
         <span class="tag ${r.escalated ? "restricted" : "clear"}">${
           r.escalated ? esc(r.reason || "refused")
@@ -165,6 +182,8 @@ async function loadList() {
     days: $("days").value,
     outcome: outcome(),
     q: $("search").value.trim(),
+    user: $("who").value.trim(),
+    document: $("doc").value.trim(),
   });
   const response = await IB.api(`/audit/recent?${where}`, {}).catch(() => null);
   if (!response) {
@@ -177,11 +196,10 @@ async function loadList() {
   // figure is unknown-and-larger is a wrong number in the one surface whose entire
   // claim is that it reports what happened.
   const capped = requests.length >= PAGE_LIMIT;
-  const narrowed = outcome() !== "all" || $("search").value.trim();
   $("count-n").textContent = capped ? `${PAGE_LIMIT}+` : requests.length;
   $("count-unit").textContent = capped
     ? "newest shown"
-    : narrowed ? "matching" : "requests";
+    : narrowed() ? "matching" : "requests";
   $("count").hidden = false;
   $("list").innerHTML = renderList();
   $("detail").innerHTML = requests.length
@@ -243,10 +261,12 @@ document.querySelector(".mode").addEventListener("click", (e) => {
 // Debounced: each keystroke is a query against the audit table, and holding one
 // key down should not be a hundred of them.
 let typing = null;
-$("search").addEventListener("input", () => {
-  clearTimeout(typing);
-  typing = setTimeout(loadList, 250);
-});
+for (const id of ["search", "who", "doc"]) {
+  $(id).addEventListener("input", () => {
+    clearTimeout(typing);
+    typing = setTimeout(loadList, 250);
+  });
+}
 $("verify").addEventListener("click", verifyChain);
 for (const id of ["days"]) {
   $(id).addEventListener("keydown", (e) => { if (e.key === "Enter") loadList(); });
