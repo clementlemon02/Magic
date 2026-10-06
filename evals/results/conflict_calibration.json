@@ -7,8 +7,7 @@
       "should_conflict": true,
       "conflicts": [
         "drive:file-aml-evidence",
-        "confluence:COMPLIANCE/aml-escalation",
-        "slack:compliance-alerts/1700000000.000002"
+        "confluence:COMPLIANCE/aml-escalation"
       ]
     },
     {
@@ -23,10 +22,9 @@
       "query": "What is the AML threshold for transfers to high-risk jurisdictions?",
       "should_conflict": true,
       "conflicts": [
-        "drive:file-aml-evidence",
-        "confluence:COMPLIANCE/aml-escalation",
         "slack:compliance-alerts/1700000000.000002",
-        "jira:RISK/AML-24"
+        "drive:file-aml-evidence",
+        "confluence:COMPLIANCE/aml-escalation"
       ]
     },
     {
@@ -44,15 +42,15 @@
     {
       "query": "What is Project Nightingale?",
       "should_conflict": true,
-      "conflicts": [
-        "confluence:COMPLIANCE/aml-escalation"
-      ]
+      "conflicts": []
     },
     {
       "query": "Is account 7731 being investigated?",
       "should_conflict": true,
       "conflicts": [
-        "slack:compliance-alerts/1700000000.000002"
+        "slack:compliance-alerts/1700000000.000002",
+        "drive:file-aml-evidence",
+        "jira:RISK/AML-24"
       ]
     },
     {

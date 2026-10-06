@@ -48,7 +48,7 @@ class Settings(BaseSettings):
     # this cost nothing on THIS corpus — every answer here resolves on its first hop. On a
     # corpus that needs a second hop to answer, lowering this starts refusing them instead.
     retrieval_hop_budget_seconds: float = 2.0
-    retrieval_min_score: float = 0.65  # per-model AND per-corpus; see .env.example
+    retrieval_min_score: float = 0.55  # per-model AND per-corpus; see .env.example before changing
     # Skip the Synthesizer's model call when one retrieved sentence, unedited,
     # already leads every other candidate on Jaccard word overlap with the query by
     # this much. The Verifier's own fast path (a verbatim substring check, no

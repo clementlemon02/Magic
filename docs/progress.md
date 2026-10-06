@@ -118,7 +118,7 @@ The test suite no longer touches demo data (fixed in #16).
 |---|---|---|
 | `run` | Router, Verifier, Synthesizer, SQL Tool, Clarification, prompt injection | Verifier 7/8 caught, 6/7 kept; **Router adversarial 4/4**; rest 100% |
 | `leak_probe` | Prompt-based ACL baseline vs ours | baseline leaks; ours 0 |
-| `conflict_calibration` | Conflict check on the seeded corpus | 8/9 raised, 0/13 false |
+| `conflict_calibration` | Conflict check on the seeded corpus | 7/9 raised, 0/13 false (4 Oct, 12-document corpus, floor 0.55) |
 | `refusal_timing` (`--padded`) | Whether refusal timing reveals the cause | all four §12 criteria pass; 0% escape |
 | `router_student` | Distilled Router vs teacher | see #21 |
 | `confidence_calibration` | Verifier confidence: Brier, and a threshold sweep | measured 0.0982 vs self-reported 0.1360 (30 Sep; grows with `VERIFIER_CASES`) |
@@ -147,6 +147,15 @@ The test suite no longer touches demo data (fixed in #16).
    its newest rows; a revoked user's refusals on internal documents can appear as
    knowledge gaps; `AUTH_SECRET` is a committed demo key with no refresh, revocation
    list or rotation — whoever holds it can mint a token for any user.
+
+Caught 4 Oct, while verifying the README's quick start on a clean database: the retrieval floor
+raised to 0.65 in #31 had broken the compliance officer's headline question. Their AML documents
+score only 0.53-0.59 against it, so Marcus was refused, and restricted matches stopped registering
+as permission conflicts for Alex (conflict recall 7/9 → 5/9, so the access-gap report would have
+lost its AML signal). The sweep that recommended 0.65 had only asked as a support user. Reverted to
+0.55 and the sweep now asks as both personas; a threshold change needs it AND `conflict_calibration`
+green. Worth remembering as a shape: one number gating a search for every persona has to be swept
+as every persona.
 
 Closed in #29: **the Verifier fail-open**, the only open issue that failed in the dangerous
 direction. A `grounded` verdict is now checked against the figures in code — every number the
